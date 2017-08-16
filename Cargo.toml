@@ -1,0 +1,7 @@
+[package]
+name = "bisimulationrs"
+version = "0.1.0"
+authors = ["Jan Vandepitte <jan.vandepitte@centric.eu>"]
+
+[dependencies]
+carboxyl = "0.2.1"
