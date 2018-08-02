@@ -9,10 +9,10 @@ trait State {
 
 }
 
-struct LabelledTransitionSystem<T : State> {
-   states : Vec<T>,
-   transitions : Vec<(T,T)>,
-   labeling_function : fn((T,T)) -> String
+struct LabelledTransitionSystem {
+   states : Vec<String>,
+   transitions : Vec<(String,String)>,
+   labeling_function : fn((String,String)) -> String
 }
 
 #[cfg(test)]
