@@ -15,9 +15,9 @@ output:
 - stream<bool> arebisimulate
 - stream<bool> arebisimilar
 
-just like can check the the equality (isomorphism) of two objects or sets inductively (or two hypotheses stochastically), the purpose of this library is to check if non-deterministic stuff (streams, cyclical etc) bisumulates each other.
+just like we can check the the equality (isomorphism) of two objects or sets inductively (or two hypotheses stochastically), the purpose of this library is to check if non-deterministic stuff (streams, cyclical etc) bisumulates each other.
 
-two sets of finite size can be compared in a deterministic manner, an equality algorithm does stop depending on the size of the objects. When comparing two streams you keep on generating a result of the bisumulation, so again a stream. This stream can stop but mustn't.
+two systems of finite size must be compared in a deterministic manner, an equality algorithm must stop with a time depending on the size of the systems. When comparing two streams you keep on generating a result of the bisumulation, so again a stream. This stream can stop but mustn't.
 
 Instead of checking if two models of a system are equal, we can check if the behaviour of two systems bisimulation each other. This is a trade off, bisimulation will be less accurate but immediate and continuous.
 
