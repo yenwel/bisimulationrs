@@ -8,6 +8,11 @@ https://arxiv.org/pdf/1705.08362.pdf
 https://docs.rs/carboxyl/0.2.1/carboxyl/
 https://ptolemy.eecs.berkeley.edu/eecs20/week4/bisimulation.html
 https://arxiv.org/pdf/1101.4223.pdf
+http://www.cs.unibo.it/~sangio/DOC_public/history_bis_coind.pdf
+http://www.cs.ru.nl/M.Sammartino/publications/ACTA14.pdf
+http://coalg.org/cmcs12/papers/00010040.pdf
+https://arxiv.org/abs/1506.01170
+https://arxiv.org/pdf/1101.4223.pdf
 
 inputs: stream a, stream b
 output: 
