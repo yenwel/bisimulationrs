@@ -13,6 +13,20 @@ http://www.cs.ru.nl/M.Sammartino/publications/ACTA14.pdf
 http://coalg.org/cmcs12/papers/00010040.pdf
 https://arxiv.org/abs/1506.01170
 https://arxiv.org/pdf/1101.4223.pdf
+http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.59.8413&rep=rep1&type=pdf
+https://www.southampton.ac.uk/~ps1a06/papers/jcss.pdf
+https://golem.ph.utexas.edu/category/2008/11/coalgebraically_thinking.html
+https://www.georgejpappas.org/papers/ACC06.pdf
+https://arxiv.org/pdf/1310.4106.pdf
+http://homepages.inf.ed.ac.uk/jeh/Bio-PEPA/TCS_CH.pdf
+https://lmcs.episciences.org/1617/pdf
+https://arxiv.org/pdf/1509.08563.pdf
+http://www.numdam.org/article/ITA_1999__33_4-5_357_0.pdf
+http://www.prismmodelchecker.org/manual/ThePRISMLanguage/ProcessAlgebraOperators
+http://www.dcs.ed.ac.uk/pepa/
+http://www.dcs.ed.ac.uk/pepa/fluidflow.pdf
+http://homepages.inf.ed.ac.uk/jeh/TALKS/Qest05.pdf
+https://pdfs.semanticscholar.org/d930/9b8202bd47317a3923c54345029715604060.pdf
 
 inputs: stream a, stream b
 output: 
