@@ -42,6 +42,17 @@ Outputs:
 
 The long-term objective is to compare non-deterministic, potentially infinite or cyclic systems with **continuous, prefix-based feedback**.
 
+## New PEPA / grouped-PEPA benchmarking infrastructure
+
+The crate now includes baseline infrastructure to benchmark process-algebra workloads:
+
+- `PepaTransition`, `PepaComponent`, `PepaProcess` for sequential PEPA-style models.
+- `GroupedPepaProcess` for population-level grouped-PEPA simulations.
+- `ProcessRuntime` trait for pluggable runtime engines.
+- `ProcessBenchmark::run` with `BenchmarkConfig` and `BenchmarkReport` for deterministic benchmark execution and metrics.
+
+This is intentionally foundational: it enables repeatable workload runs and metric collection while keeping room for stochastic sampling, synchronized cooperation sets, and fluid approximations.
+
 ## Streaming-first architecture (recommended)
 
 The listed references converge on a practical architecture:
@@ -69,8 +80,10 @@ The listed references converge on a practical architecture:
 ## Near-term roadmap for this crate
 
 - [x] Provide an incremental prefix checker API in `src/lib.rs`.
+- [x] Add PEPA/grouped-PEPA benchmarking infrastructure (`ProcessRuntime`, `ProcessBenchmark`).
 - [ ] Replace `HashMap<label, (src, tgt)>` with a multimap adjacency structure (one label can have many transitions).
 - [ ] Add a proper on-the-fly game algorithm over discovered states.
+- [ ] Add synchronized cooperation sets and stochastic race semantics for PEPA benchmarks.
 - [ ] Support bounded memory with configurable eviction/windowing policies.
 - [ ] Expose async adapters (`futures::Stream`) and channel-based ingestion.
 - [ ] Add benchmark suites: dense finite LTS, sparse stochastic traces, cyclic workloads.
