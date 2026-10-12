@@ -1,3 +1,21 @@
 /target/
 **/*.rs.bk
 Cargo.lock
+
+# Python package (maturin)
+python/.venv/
+python/**/__pycache__/
+python/bisimulationrs/_native*.so
+python/bisimulationrs/_native*.pyd
+crates/bisim-py/target/
+
+# R package (extendr)
+r/src/rust/target/
+r/src/*.o
+r/src/*.so
+*.Rcheck/
+.Rhistory
+
+# Web editor build output (see web/build.sh)
+web/*.wasm
+web/dist/

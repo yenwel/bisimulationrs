@@ -1,3 +1,12 @@
+//! The 0.1 API, kept so existing users keep compiling.
+//!
+//! Known limitations (fixed in the new crates): `LabelledTransitionSystem`
+//! allows one transition per label and compares systems with the wrong
+//! partition; `PrefixBisimulationChecker` tests transition-set inclusion on
+//! state names, which is not simulation; the PEPA runtimes ignore rates and
+//! cooperation.
+#![allow(deprecated, missing_debug_implementations)]
+
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::time::{Duration, Instant};

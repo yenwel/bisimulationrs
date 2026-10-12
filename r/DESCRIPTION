@@ -1,0 +1,24 @@
+Package: bisimulationrs
+Title: Analyse and Compare PEPA Performance Models
+Version: 0.2.0
+Authors@R: 
+    person("Jan", "Vandepitte", , "jan.vandepitte@mateco.eu", role = c("aut", "cre"))
+Description: Checks PEPA (Performance Evaluation Process Algebra) models,
+    derives their state space as a continuous-time Markov chain, merges
+    equivalent states by Markovian bisimulation, computes behaviour over
+    time, and explains how two models differ with distinguishing formulas.
+    The analysis runs in Rust; results are returned as data frames. Times
+    are in seconds and rates in events per second.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.1.0
+Config/rextendr/version: 0.5.0
+SystemRequirements: Cargo (Rust's package manager), rustc >= 1.85.0, xz
+Depends: 
+    R (>= 4.2)
+Imports:
+    jsonlite
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

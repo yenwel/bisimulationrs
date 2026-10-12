@@ -1,0 +1,28 @@
+[package]
+name = "bisim-api"
+description = "Plain, serialisable API over bisimulationrs for bindings (web, Python, R)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bisim-core.workspace = true
+bisim-refine.workspace = true
+bisim-algebra.workspace = true
+bisim-stochastic.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+
+[features]
+default = ["json"]
+# `handle_json`: one JSON request/response entry point for bindings.
+json = ["dep:serde_json"]
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

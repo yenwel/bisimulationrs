@@ -1,0 +1,27 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "bisimulationrs"
+version = "0.2.0"
+description = "Analyse and compare PEPA performance models: state spaces, lumping, transient behaviour and bisimulation."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "Jan Vandepitte" }]
+dependencies = ["pandas>=1.5"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.6"]
+test = ["pytest>=7"]
+
+[tool.maturin]
+manifest-path = "../crates/bisim-py/Cargo.toml"
+module-name = "bisimulationrs._native"
+python-source = "."

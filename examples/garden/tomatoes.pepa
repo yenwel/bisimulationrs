@@ -1,0 +1,21 @@
+// Tomato bed: the season as planned, from transplanting (day 0).
+// Rates are per day. Each growth stage is split into two equal steps
+// (Stage_1, Stage_2), which makes stage durations less random than a single
+// exponential delay; observe them simply as the stage name.
+
+veg_days    = 28;     // transplanting to first flowers
+flower_days = 14;     // first flowers to fruit set
+fruit_days  = 35;     // fruit set to first ripe fruit
+loss        = 0.002;  // chance per plant per day of losing it (pests, blight)
+
+Tomato       = Vegetative_1;
+Vegetative_1 = (grow, 2 / veg_days).Vegetative_2       + (lose, loss).Lost;
+Vegetative_2 = (grow, 2 / veg_days).Flowering_1        + (lose, loss).Lost;
+Flowering_1  = (set_fruit, 2 / flower_days).Flowering_2 + (lose, loss).Lost;
+Flowering_2  = (set_fruit, 2 / flower_days).Fruiting_1  + (lose, loss).Lost;
+Fruiting_1   = (ripen, 2 / fruit_days).Fruiting_2       + (lose, loss).Lost;
+Fruiting_2   = (ripen, 2 / fruit_days).Ripe             + (lose, loss).Lost;
+Ripe = 0;
+Lost = 0;
+
+Tomato[24]
