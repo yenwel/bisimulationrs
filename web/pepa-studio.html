@@ -1,0 +1,1027 @@
+<title>PEPA Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a two-pane workbench. Model source on the left, instrument views
+   (state space, components, occupancy, comparison) on the right; stacks on phones. */
+:root {
+  --bg: #f3f6f6;
+  --panel: #ffffff;
+  --sunken: #e9eef0;
+  --ink: #0f1d22;
+  --ink-2: #3c4e55;
+  --muted: #6b7d84;
+  --line: #d3dde0;
+  --accent: #0e6f7c;
+  --accent-soft: #d7eef1;
+  --on-accent: #ffffff;
+  --ok: #0a7d32;
+  --bad: #c0352f;
+  --warn: #9a6400;
+  --bad-soft: #fbe6e4;
+  --ok-soft: #e1f3e6;
+  --warn-soft: #fbefd6;
+  --syn-comp: #0e6f7c;
+  --syn-action: #7a3fb0;
+  --syn-num: #a4510b;
+  --syn-op: #3c4e55;
+  --syn-comment: #8a9aa0;
+  --hl: #f0b429;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1518; --panel: #161f23; --sunken: #1c272c; --ink: #e6eef0; --ink-2: #b5c4c9;
+    --muted: #82959c; --line: #2c3a40; --accent: #4cb8c6; --accent-soft: #173a40; --on-accent: #06181b;
+    --ok: #4cc777; --bad: #f07b72; --warn: #e5b14a; --bad-soft: #3a1f1d; --ok-soft: #173322; --warn-soft: #3a2e14;
+    --syn-comp: #5cc6d3; --syn-action: #c49af0; --syn-num: #f0a868; --syn-op: #b5c4c9; --syn-comment: #6f838a;
+    --hl: #f0b429;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1518; --panel: #161f23; --sunken: #1c272c; --ink: #e6eef0; --ink-2: #b5c4c9;
+  --muted: #82959c; --line: #2c3a40; --accent: #4cb8c6; --accent-soft: #173a40; --on-accent: #06181b;
+  --ok: #4cc777; --bad: #f07b72; --warn: #e5b14a; --bad-soft: #3a1f1d; --ok-soft: #173322; --warn-soft: #3a2e14;
+  --syn-comp: #5cc6d3; --syn-action: #c49af0; --syn-num: #f0a868; --syn-op: #b5c4c9; --syn-comment: #6f838a;
+  --hl: #f0b429;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.5;
+}
+.app { display: flex; flex-direction: column; min-height: 100%; padding-inline: 16px; padding-block: 12px 20px; gap: 12px; }
+header.bar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+header.bar h1 { font-family: var(--font-display); font-weight: 600; font-size: 22px; letter-spacing: 0.01em; margin: 0; }
+header.bar h1 span { color: var(--accent); }
+header.bar p { margin: 0; color: var(--muted); max-width: 70ch; }
+.engine { margin-left: auto; font-family: var(--font-mono); font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.ready { background: var(--ok); }
+.dot.failed { background: var(--bad); }
+
+.workbench { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 12px; flex: 1; min-height: 0; }
+@media (max-width: 900px) { .workbench { grid-template-columns: minmax(0, 1fr); } }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.pane-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.label { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); }
+select, input[type="number"] {
+  font: inherit; font-size: 13px; color: var(--ink); background: var(--sunken); border: 1px solid var(--line);
+  border-radius: 4px; padding: 3px 6px;
+}
+input[type="number"] { width: 6.5em; font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.spacer { flex: 1; }
+
+/* Editor: a transparent textarea over a highlighted <pre>. */
+.editor { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); flex: 1; min-height: 280px; font-family: var(--font-mono); font-size: 13px; line-height: 20px; background: var(--panel); border-radius: 0 0 6px 6px; overflow: hidden; }
+.gutter { padding: 10px 8px 10px 12px; text-align: right; color: var(--muted); background: var(--sunken); user-select: none; overflow: hidden; font-variant-numeric: tabular-nums; }
+.gutter div.err { color: var(--bad); font-weight: 500; }
+.code { position: relative; min-width: 0; }
+.code pre, .code textarea {
+  margin: 0; padding: 10px 12px; border: 0; font: inherit; line-height: inherit; white-space: pre; tab-size: 4;
+  position: absolute; inset: 0; overflow: auto;
+}
+.code pre { pointer-events: none; color: var(--ink); }
+.code textarea { resize: none; background: transparent; color: transparent; caret-color: var(--ink); outline: none; }
+.code textarea::selection { background: var(--accent-soft); color: transparent; }
+.t-comp { color: var(--syn-comp); font-weight: 500; }
+.t-action { color: var(--syn-action); }
+.t-num { color: var(--syn-num); }
+.t-op { color: var(--syn-op); }
+.t-kw { color: var(--syn-num); font-style: italic; }
+.t-comment { color: var(--syn-comment); font-style: italic; }
+.t-err { text-decoration: underline wavy var(--bad); text-underline-offset: 3px; }
+
+.diagnostics { border-top: 1px solid var(--line); padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; max-height: 9em; overflow: auto; }
+.diag { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.diag .where { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-width: 3.5em; font-variant-numeric: tabular-nums; }
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+
+.tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+.tab { font: inherit; font-family: var(--font-display); font-weight: 500; font-size: 14px; border: 0; background: none; color: var(--ink-2); padding: 6px 10px; border-radius: 4px; cursor: pointer; }
+.tab:hover { background: var(--sunken); }
+.tab[aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
+.view { padding: 12px; display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-2); }
+.facts b { font-family: var(--font-mono); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { font: inherit; font-size: 13px; border: 0; background: var(--panel); color: var(--ink-2); padding: 3px 10px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.graph { height: 380px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunken); position: relative; }
+.graph.small { height: 240px; }
+.graph .note { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 16px; text-align: center; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0; }
+.mono { font-family: var(--font-mono); }
+
+.table-wrap { overflow: auto; max-height: 220px; border: 1px solid var(--line); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { position: sticky; top: 0; background: var(--panel); font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: 0.04em; color: var(--ink-2); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+tr.selected td { background: var(--accent-soft); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.card { border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; min-width: 0; }
+.card h3 { margin: 0; padding: 8px 10px; font-family: var(--font-display); font-weight: 600; font-size: 14px; border-bottom: 1px solid var(--line); }
+.card .graph { border: 0; border-radius: 0 0 4px 4px; }
+
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .axis text { fill: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+.chart .grid line { stroke: var(--line); stroke-width: 1; }
+.chart .baseline { stroke: var(--ink-2); stroke-width: 1; }
+.chart .series path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .endlabel { font-size: 12px; fill: var(--ink-2); font-family: var(--font-body); }
+.chart .cross { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 3; }
+.tooltip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 10px rgb(0 0 0 / 0.12); min-width: 150px; }
+.tooltip .row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.tooltip .sw { width: 10px; height: 2px; border-radius: 1px; display: inline-block; }
+.tooltip .v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); }
+.legend span.sw { display: inline-block; width: 14px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 6px; }
+
+.compare-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+@media (max-width: 700px) { .compare-grid { grid-template-columns: minmax(0, 1fr); } }
+.editor.b { min-height: 180px; border: 1px solid var(--line); border-radius: 4px; }
+.verdicts { display: flex; flex-direction: column; gap: 6px; }
+.verdict { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 4px 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); text-align: left; font: inherit; color: inherit; }
+@media (max-width: 560px) { .verdict { grid-template-columns: minmax(0, 1fr); } }
+button.verdict { cursor: pointer; }
+button.verdict:hover { border-color: var(--accent); }
+.verdict.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.verdict .name { font-weight: 600; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.verdict .formula { font-family: var(--font-mono); font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.verdict .why { color: var(--ink-2); font-size: 13px; }
+.legend-hl { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.legend-hl i { width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--hl); display: inline-block; }
+.obs-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+input[type="text"].date { font: inherit; font-size: 13px; font-family: var(--font-mono); width: 7.5em; color: var(--ink); background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+.obs-table td input, .obs-table td select { font: inherit; font-size: 13px; color: var(--ink); background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 2px 5px; }
+.obs-table td input.date { width: 7.5em; font-family: var(--font-mono); }
+.obs-table td input.count { width: 4.5em; font-variant-numeric: tabular-nums; }
+.btn { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn.icon { padding: 1px 7px; color: var(--muted); }
+.verdict-banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); }
+.verdict-banner.off { border-color: var(--bad); background: var(--bad-soft); }
+.verdict-banner.on { border-color: var(--ok); background: var(--ok-soft); }
+.verdict-banner p { margin: 0; }
+.fit-box { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; font-family: var(--font-mono); }
+.chart .band { fill: var(--s1); opacity: 0.16; }
+.chart .obs-dot { stroke: var(--panel); stroke-width: 2; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="app">
+  <header class="bar">
+    <h1>PEPA <span>Studio</span></h1>
+    <p>Write a PEPA model, see its state space and lumped Markov chain, follow occupancy over time, and compare two models by bisimulation.</p>
+    <span class="engine" id="engine"><i class="dot" id="engine-dot"></i><span id="engine-text">loading engine…</span></span>
+  </header>
+
+  <main class="workbench">
+    <section class="pane" aria-label="Model A">
+      <div class="pane-head">
+        <span class="label">Model A</span>
+        <label class="hint" for="example">Example</label>
+        <select id="example"></select>
+        <span class="spacer"></span>
+        <span id="status-a"></span>
+      </div>
+      <div class="editor" id="editor-a"></div>
+      <div class="diagnostics" id="diag-a" aria-live="polite"></div>
+    </section>
+
+    <section class="pane" aria-label="Views">
+      <div class="pane-head">
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" id="tab-space" aria-selected="true" data-view="space">State space</button>
+          <button class="tab" role="tab" id="tab-components" aria-selected="false" data-view="components">Components</button>
+          <button class="tab" role="tab" id="tab-time" aria-selected="false" data-view="time">Over time</button>
+          <button class="tab" role="tab" id="tab-observe" aria-selected="false" data-view="observe">Observations</button>
+          <button class="tab" role="tab" id="tab-compare" aria-selected="false" data-view="compare">Compare</button>
+        </div>
+      </div>
+
+      <div class="view" id="view-space" role="tabpanel" aria-labelledby="tab-space">
+        <div class="pane-head" style="padding:0;border:0">
+          <div class="seg" role="group" aria-label="Graph">
+            <button id="show-full" aria-pressed="true">Full</button>
+            <button id="show-lumped" aria-pressed="false">Lumped</button>
+          </div>
+          <div class="facts" id="space-facts"></div>
+        </div>
+        <div class="graph" id="graph-space"></div>
+        <p class="hint">Edges show action and total rate (per time unit). In the full graph, states with the same colour are Markovian bisimilar and merge when lumped. Click a state to find it in the table.</p>
+        <div class="table-wrap"><table id="space-table"></table></div>
+      </div>
+
+      <div class="view" id="view-components" role="tabpanel" aria-labelledby="tab-components" hidden>
+        <p class="hint">Local derivative graph of each sequential component in the system equation. ⊤ marks a passive rate set by the cooperation partner.</p>
+        <div class="cards" id="component-cards"></div>
+      </div>
+
+      <div class="view" id="view-time" role="tabpanel" aria-labelledby="tab-time" hidden>
+        <div class="pane-head" style="padding:0;border:0">
+          <label class="hint" for="horizon">Horizon</label>
+          <input type="number" id="horizon" min="0.1" step="any" value="100">
+          <label class="hint" for="unit">Time unit</label>
+          <select id="unit"><option value="second">seconds</option><option value="minute">minutes</option><option value="hour">hours</option><option value="day">days</option><option value="week">weeks</option></select>
+          <label class="hint" for="leaf">Component</label>
+          <select id="leaf"></select>
+        </div>
+        <div class="legend" id="time-legend"></div>
+        <div class="chart" id="chart"></div>
+        <p class="hint" id="time-note"></p>
+      </div>
+
+      <div class="view" id="view-observe" role="tabpanel" aria-labelledby="tab-observe" hidden>
+        <p class="hint">Is reality following the plan? Enter dated counts, e.g. how many plants were flowering on a given day. Model A is the plan; its initial state is on the start date and its rates are per time unit. A stage modelled as <span class="mono">Stage_1</span>, <span class="mono">Stage_2</span> is counted as <span class="mono">Stage</span>.</p>
+        <div class="obs-controls">
+          <label class="hint" for="obs-start">Start date</label>
+          <input type="text" class="date" id="obs-start" value="15/05/2026" placeholder="dd/mm/yyyy" inputmode="numeric">
+          <label class="hint" for="obs-unit">Rates per</label>
+          <select id="obs-unit"><option value="second">second</option><option value="minute">minute</option><option value="hour">hour</option><option value="day" selected>day</option><option value="week">week</option></select>
+          <label class="hint" for="obs-level">Range</label>
+          <select id="obs-level"><option value="0.9">90 %</option><option value="0.95" selected>95 %</option><option value="0.99">99 %</option></select>
+        </div>
+        <div class="table-wrap" style="max-height:260px"><table class="obs-table" id="obs-table"></table></div>
+        <div><button class="btn" id="obs-add" type="button">Add count</button></div>
+        <div id="obs-result" aria-live="polite"></div>
+        <div class="obs-controls" id="obs-chart-controls" hidden>
+          <label class="hint" for="obs-state">Show</label>
+          <select id="obs-state"></select>
+        </div>
+        <div class="legend" id="obs-legend" hidden>
+          <span><span class="sw" style="background:var(--s1)"></span>expected (plan)</span>
+          <span><span class="sw" style="background:var(--s1);opacity:.35;height:8px"></span>range (plan)</span>
+          <span><span class="sw" style="background:var(--ok);height:8px;width:8px;border-radius:50%"></span>counted, in range</span>
+          <span><span class="sw" style="background:var(--bad);height:8px;width:8px;border-radius:50%"></span>counted, outside range</span>
+        </div>
+        <div class="chart" id="obs-chart"></div>
+        <div class="table-wrap" id="obs-results-wrap" hidden><table id="obs-results"></table></div>
+        <div class="fit-box">
+          <span class="label">Which stage is off?</span>
+          <p class="hint">Fit one or more rate parameters to the counts. Fitting one at a time shows which stage differs from the plan.</p>
+          <div class="checks" id="fit-params"></div>
+          <div><button class="btn primary" id="fit-run" type="button">Fit to counts</button></div>
+          <div id="fit-result" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div class="view" id="view-compare" role="tabpanel" aria-labelledby="tab-compare" hidden>
+        <div class="pane-head" style="padding:0;border:0">
+          <span class="label">Model B</span>
+          <label class="hint" for="preset-b">Preset</label>
+          <select id="preset-b"></select>
+          <span class="spacer"></span>
+          <span id="status-b"></span>
+        </div>
+        <div class="editor b" id="editor-b"></div>
+        <div class="diagnostics" id="diag-b" aria-live="polite" style="border:0;padding:0"></div>
+        <div class="verdicts" id="verdicts"></div>
+        <span class="legend-hl"><i></i> states satisfying the selected formula</span>
+        <div class="compare-grid">
+          <div class="card"><h3>A</h3><div class="graph small" id="graph-a"></div></div>
+          <div class="card"><h3>B</h3><div class="graph small" id="graph-b"></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<script>
+"use strict";
+
+// ---------- Examples (rates in s⁻¹) ----------
+const EXAMPLES = {
+  "Herd health": `// Three animals; a vet is needed for recovery.
+r_disease = 0.02;
+r_heal = 0.1;
+r_death = 0.01;
+
+Healthy = (disease, r_disease).Sick;
+Sick    = (healing, r_heal).Healthy + (death, r_death).Dead;
+Dead    = 0;
+Vet     = (healing, infty).Vet;
+
+Healthy[3] <healing> Vet`,
+  "Hillston cycle": `// Hillston, QEST 2005: two copies of a 3-step cycle.
+r = 1;
+P1 = (start, r).P2;
+P2 = (run, r).P3;
+P3 = (stop, r).P1;
+
+P1 || P1`,
+  "Tomato bed": `// Tomato bed: the season as planned, from transplanting (day 0).
+// Rates are per day. Each growth stage is split into two equal steps
+// (Stage_1, Stage_2) so stage durations are less random; count them
+// simply by stage name in the Observations tab.
+
+veg_days    = 28;     // transplanting to first flowers
+flower_days = 14;     // first flowers to fruit set
+fruit_days  = 35;     // fruit set to first ripe fruit
+loss        = 0.002;  // chance per plant per day of losing it
+
+Tomato       = Vegetative_1;
+Vegetative_1 = (grow, 2 / veg_days).Vegetative_2       + (lose, loss).Lost;
+Vegetative_2 = (grow, 2 / veg_days).Flowering_1        + (lose, loss).Lost;
+Flowering_1  = (set_fruit, 2 / flower_days).Flowering_2 + (lose, loss).Lost;
+Flowering_2  = (set_fruit, 2 / flower_days).Fruiting_1  + (lose, loss).Lost;
+Fruiting_1   = (ripen, 2 / fruit_days).Fruiting_2       + (lose, loss).Lost;
+Fruiting_2   = (ripen, 2 / fruit_days).Ripe             + (lose, loss).Lost;
+Ripe = 0;
+Lost = 0;
+
+Tomato[24]`,
+  "Clients and server": `// Two clients share a server; requests synchronise.
+r_req = 2;
+r_think = 1;
+r_serve = 3;
+
+Client = (req, r_req).Wait;
+Wait   = (done, r_think).Client;
+Server = (req, r_serve).Server;
+
+Client[2] <req> Server`,
+};
+
+// Counts that come with an example (dates dd/mm/yyyy).
+const EXAMPLE_OBS = {
+  "Tomato bed": { start: "15/05/2026", unit: "day", rows: [
+    ["05/06/2026", "Vegetative", 17], ["05/06/2026", "Flowering", 5],
+    ["19/06/2026", "Vegetative", 12], ["19/06/2026", "Fruiting", 5],
+    ["03/07/2026", "Vegetative", 8], ["03/07/2026", "Fruiting", 8],
+    ["17/07/2026", "Vegetative", 6], ["17/07/2026", "Ripe", 1],
+  ] },
+};
+const EXAMPLE_UNIT = { "Herd health": "second", "Hillston cycle": "second", "Clients and server": "second", "Tomato bed": "day" };
+
+const PRESETS_B = {
+  "No recovery (vs herd)": `r_disease = 0.02;
+r_death = 0.01;
+
+Healthy = (disease, r_disease).Sick;
+Sick    = (death, r_death).Dead;
+Dead    = 0;
+
+Healthy[3]`,
+  "Array form (vs cycle)": `r = 1;
+P1 = (start, r).P2;
+P2 = (run, r).P3;
+P3 = (stop, r).P1;
+
+P1[2]`,
+  "Faster start (vs cycle)": `P1 = (start, 2).P2;
+P2 = (run, 1).P3;
+P3 = (stop, 1).P1;
+
+P1[2]`,
+};
+
+// ---------- Engine (Rust → WebAssembly, JSON in/out) ----------
+let wasm = null;
+const enc = new TextEncoder(), dec = new TextDecoder();
+function api(request) {
+  const bytes = enc.encode(JSON.stringify(request));
+  const ptr = wasm.alloc(bytes.length);
+  new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
+  const n = wasm.call(ptr, bytes.length);
+  return JSON.parse(dec.decode(new Uint8Array(wasm.memory.buffer, wasm.response_ptr(), n)));
+}
+
+// ---------- Storage (per-viewer drafts; optional) ----------
+const store = {
+  get(k) { try { return localStorage.getItem("pepa-studio:" + k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem("pepa-studio:" + k, v); } catch { /* storage unavailable */ } },
+};
+
+// ---------- Theme helpers ----------
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const seriesColor = (i) => css(`--s${(i % 8) + 1}`);
+
+// ---------- Editor with highlighting ----------
+function escapeHtml(s) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function highlight(src, err) {
+  // err: {line, column} (1-based) or null
+  const lines = src.split("\n");
+  let inBlock = false;
+  return lines.map((line, li) => {
+    let out = "", i = 0;
+    const errCol = err && err.line === li + 1 ? err.column - 1 : -1;
+    const wrap = (text, cls, start) => {
+      let html = escapeHtml(text);
+      const isErr = errCol >= start && errCol < start + Math.max(text.length, 1);
+      if (isErr) cls = (cls ? cls + " " : "") + "t-err";
+      return cls ? `<span class="${cls}">${html}</span>` : html;
+    };
+    while (i < line.length) {
+      const rest = line.slice(i);
+      let m;
+      if (inBlock) {
+        const end = rest.indexOf("*/");
+        const text = end < 0 ? rest : rest.slice(0, end + 2);
+        out += wrap(text, "t-comment", i); i += text.length; if (end >= 0) inBlock = false; continue;
+      }
+      if (rest.startsWith("//")) { out += wrap(rest, "t-comment", i); break; }
+      if (rest.startsWith("/*")) { inBlock = true; continue; }
+      if ((m = rest.match(/^[A-Za-z_][A-Za-z0-9_']*/))) {
+        const w = m[0];
+        const cls = w === "infty" || w === "T" ? "t-kw" : /^[A-Z]/.test(w) ? "t-comp" : "t-action";
+        out += wrap(w, cls, i); i += w.length; continue;
+      }
+      if ((m = rest.match(/^\d+(\.\d+)?([eE][+-]?\d+)?/))) { out += wrap(m[0], "t-num", i); i += m[0].length; continue; }
+      if ((m = rest.match(/^(\|\||[<>\[\]{}+*\/=;,.()-])/))) { out += wrap(m[0], "t-op", i); i += m[0].length; continue; }
+      out += wrap(line[i], "", i); i += 1;
+    }
+    if (errCol >= line.length) out += `<span class="t-err"> </span>`;
+    return out;
+  }).join("\n") + "\n";
+}
+
+function makeEditor(host, initial, onChange) {
+  host.innerHTML = `<div class="gutter" aria-hidden="true"></div><div class="code"><pre aria-hidden="true"></pre><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="${host.id === "editor-a" ? "Model A source" : "Model B source"}" id="${host.id}-text"></textarea></div>`;
+  const gutter = host.querySelector(".gutter"), pre = host.querySelector("pre"), ta = host.querySelector("textarea");
+  let err = null;
+  const render = () => {
+    pre.innerHTML = highlight(ta.value, err);
+    const n = ta.value.split("\n").length;
+    gutter.innerHTML = Array.from({ length: n }, (_, i) => `<div class="${err && err.line === i + 1 ? "err" : ""}">${i + 1}</div>`).join("");
+    sync();
+  };
+  const sync = () => { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; gutter.scrollTop = ta.scrollTop; };
+  ta.value = initial;
+  ta.addEventListener("input", () => { render(); onChange(ta.value); });
+  ta.addEventListener("scroll", sync);
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText("    ", s, ta.selectionEnd, "end"); render(); onChange(ta.value); }
+  });
+  render();
+  return {
+    get value() { return ta.value; },
+    set value(v) { ta.value = v; render(); },
+    setError(e) { err = e; render(); },
+  };
+}
+
+// ---------- Diagnostics ----------
+function showDiagnostics(el, statusEl, diags, okText) {
+  const errors = diags.filter((d) => d.severity === "error");
+  const warnings = diags.filter((d) => d.severity === "warning");
+  statusEl.innerHTML = errors.length ? `<span class="pill bad">✕ ${errors.length} error${errors.length > 1 ? "s" : ""}</span>`
+    : warnings.length ? `<span class="pill warn">! ${warnings.length} warning${warnings.length > 1 ? "s" : ""}</span>`
+    : `<span class="pill ok">✓ ${okText}</span>`;
+  el.innerHTML = diags.map((d) => `<div class="diag"><span class="pill ${d.severity === "error" ? "bad" : "warn"}">${d.severity}</span><span class="where">${d.line ? `${d.line}:${d.column}` : "model"}</span><span>${escapeHtml(d.message)}</span></div>`).join("");
+  el.hidden = diags.length === 0;
+  return errors.length === 0;
+}
+
+// ---------- Graphs (Cytoscape) ----------
+const MAX_DRAW = 300;
+const fmtRate = (r) => (Math.abs(r) >= 1000 || (r !== 0 && Math.abs(r) < 0.001)) ? r.toExponential(2) : +r.toPrecision(4) + "";
+const fmtPct = (p) => (100 * p).toFixed(p >= 0.0995 ? 1 : 2) + " %";
+
+function graphStyle() {
+  return [
+    { selector: "node", style: {
+      "background-color": css("--panel"), "border-width": 1.5, "border-color": css("--ink-2"),
+      label: "data(label)", color: css("--ink"), "font-family": "IBM Plex Mono, ui-monospace, monospace", "font-size": 10,
+      "text-wrap": "wrap", "text-max-width": 140, "text-valign": "bottom", "text-margin-y": 5, width: 18, height: 18,
+      "text-background-color": css("--sunken"), "text-background-opacity": 0.85, "text-background-padding": 2,
+    } },
+    { selector: "node[color]", style: { "background-color": "data(color)", "border-color": css("--panel"), "border-width": 2 } },
+    { selector: "node.initial", style: { shape: "round-rectangle", width: 22, height: 22, "border-width": 3, "border-color": css("--ink") } },
+    { selector: "node.hl", style: { "border-color": css("--hl"), "border-width": 5 } },
+    { selector: "node:selected", style: { "overlay-color": css("--accent"), "overlay-opacity": 0.2, "overlay-padding": 6 } },
+    { selector: "edge", style: {
+      width: 1.5, "line-color": css("--muted"), "target-arrow-color": css("--muted"), "target-arrow-shape": "triangle",
+      "arrow-scale": 0.9, "curve-style": "bezier", label: "data(label)", "font-size": 9.5, color: css("--ink-2"),
+      "font-family": "IBM Plex Mono, ui-monospace, monospace", "text-rotation": "autorotate",
+      "text-background-color": css("--sunken"), "text-background-opacity": 0.9, "text-background-padding": 1,
+      "loop-direction": "-45deg", "loop-sweep": "-40deg",
+    } },
+  ];
+}
+
+const graphs = new Map(); // container id -> cytoscape instance
+function drawGraph(id, nodes, edges, opts = {}) {
+  const host = document.getElementById(id);
+  if (graphs.has(id)) { graphs.get(id).destroy(); graphs.delete(id); }
+  host.innerHTML = "";
+  if (!window.cytoscape) { host.innerHTML = `<div class="note">The graph library did not load. The table below lists the states.</div>`; return null; }
+  if (nodes.length > MAX_DRAW) { host.innerHTML = `<div class="note">${nodes.length} states is too many to draw clearly. Use the lumped view or the table.</div>`; return null; }
+  const cy = cytoscape({
+    container: host,
+    elements: [
+      ...nodes.map((n) => ({ data: { id: "n" + n.id, label: n.label, ...(n.color ? { color: n.color } : {}) }, classes: [n.initial ? "initial" : "", n.hl ? "hl" : ""].join(" ") })),
+      ...edges.map((e, i) => ({ data: { id: "e" + i, source: "n" + e.source, target: "n" + e.target, label: e.label } })),
+    ],
+    style: graphStyle(),
+    layout: { name: "breadthfirst", directed: true, roots: nodes.filter((n) => n.initial).map((n) => "#n" + n.id), spacingFactor: opts.spacing || 1.25, padding: 24, animate: false },
+    wheelSensitivity: 0.3, minZoom: 0.2, maxZoom: 3,
+  });
+  if (opts.onTap) cy.on("tap", "node", (ev) => opts.onTap(+ev.target.id().slice(1)));
+  graphs.set(id, cy);
+  return cy;
+}
+
+function restyleGraphs() { for (const cy of graphs.values()) cy.style(graphStyle()); }
+
+// ---------- State ----------
+let analysis = null, showLumped = false, activeView = "space", activeVerdict = null, comparison = null;
+let analyseTimer = 0, compareTimer = 0;
+
+const editorA = makeEditor(document.getElementById("editor-a"), "", () => { store.set("a", editorA.value); schedule(); });
+const editorB = makeEditor(document.getElementById("editor-b"), "", () => { store.set("b", editorB.value); scheduleCompare(); });
+
+function schedule() { clearTimeout(analyseTimer); analyseTimer = setTimeout(runA, 220); }
+function scheduleCompare() { clearTimeout(compareTimer); compareTimer = setTimeout(runCompare, 260); }
+
+// ---------- Model A ----------
+function runA() {
+  if (!wasm) return;
+  const diags = api({ op: "check", source: editorA.value }).ok;
+  const firstErr = diags.find((d) => d.severity === "error" && d.line > 0);
+  editorA.setError(firstErr ? { line: firstErr.line, column: firstErr.column } : null);
+  if (!showDiagnostics(document.getElementById("diag-a"), document.getElementById("status-a"), diags, "valid")) { analysis = null; renderView(); return; }
+  const res = api({ op: "analyse", source: editorA.value, max_states: 5000 });
+  if (res.error) {
+    showDiagnostics(document.getElementById("diag-a"), document.getElementById("status-a"), res.error, "valid");
+    analysis = null;
+  } else {
+    analysis = res.ok;
+  }
+  fillLeafSelect();
+  renderView();
+}
+
+function renderView() {
+  if (activeView === "space") renderSpace();
+  else if (activeView === "components") renderComponents();
+  else if (activeView === "time") renderTime();
+  else if (activeView === "observe") runObserve();
+  else if (activeView === "compare") runCompare();
+}
+
+// ---------- View: state space ----------
+function renderSpace() {
+  const facts = document.getElementById("space-facts"), table = document.getElementById("space-table");
+  if (!analysis) {
+    facts.innerHTML = ""; table.innerHTML = "";
+    drawGraph("graph-space", [], []);
+    document.getElementById("graph-space").innerHTML = `<div class="note">Fix the model's errors to see its state space.</div>`;
+    return;
+  }
+  if (analysis.note) {
+    facts.innerHTML = ""; table.innerHTML = "";
+    drawGraph("graph-space", [], []);
+    document.getElementById("graph-space").innerHTML = `<div class="note">${escapeHtml(analysis.note)}</div>`;
+    return;
+  }
+  const { full, lumped, steady_state } = analysis;
+  const blocks = lumped.states.length;
+  facts.innerHTML = `<span><b>${full.states.length}</b> states</span><span><b>${full.transitions.length}</b> transitions</span><span><b>${blocks}</b> after lumping</span>`;
+  const g = showLumped ? lumped : full;
+  // Colour blocks only when it helps: some merging, and few enough blocks to tell apart.
+  const colourBlocks = !showLumped && blocks < full.states.length && blocks <= 8;
+  const blockSteady = new Array(blocks).fill(0);
+  full.states.forEach((s) => { blockSteady[s.block] += steady_state[s.id]; });
+  const nodes = g.states.map((s) => ({
+    id: s.id, label: s.name, initial: s.initial,
+    color: colourBlocks ? seriesColor(s.block) : null,
+  }));
+  const edges = g.transitions.map((t) => ({ source: t.source, target: t.target, label: `${t.action} ${fmtRate(t.rate)}` }));
+  drawGraph("graph-space", nodes, edges, { onTap: (id) => selectRow(id) });
+
+  const rows = g.states.map((s) => {
+    const p = showLumped ? blockSteady[s.id] : steady_state[s.id];
+    return `<tr data-id="${s.id}"><td class="num">${s.id}</td><td class="mono">${escapeHtml(s.name)}</td><td class="num">${showLumped ? s.size : s.block}</td><td class="num">${fmtPct(p)}</td></tr>`;
+  }).join("");
+  table.innerHTML = `<thead><tr><th class="num">#</th><th>State</th><th class="num">${showLumped ? "Merged states" : "Block"}</th><th class="num">Steady state</th></tr></thead><tbody>${rows}</tbody>`;
+}
+
+function selectRow(id) {
+  const table = document.getElementById("space-table");
+  table.querySelectorAll("tr.selected").forEach((r) => r.classList.remove("selected"));
+  const row = table.querySelector(`tr[data-id="${id}"]`);
+  if (row) { row.classList.add("selected"); row.scrollIntoView({ block: "nearest" }); }
+}
+
+// ---------- View: components ----------
+function renderComponents() {
+  const host = document.getElementById("component-cards");
+  for (const id of [...graphs.keys()].filter((k) => k.startsWith("comp-"))) { graphs.get(id).destroy(); graphs.delete(id); }
+  if (!analysis) { host.innerHTML = `<p class="hint">Fix the model's errors to see its components.</p>`; return; }
+  host.innerHTML = analysis.components.map((c, i) => `<div class="card"><h3>${escapeHtml(c.component)}</h3><div class="graph small" id="comp-${i}"></div></div>`).join("");
+  analysis.components.forEach((c, i) => {
+    const nodes = c.states.map((name, k) => ({ id: k, label: name, initial: k === 0 }));
+    const edges = c.transitions.map((t) => ({ source: t.source, target: t.target, label: `${t.action} ${t.passive ? (t.rate === 1 ? "⊤" : fmtRate(t.rate) + "⊤") : fmtRate(t.rate)}` }));
+    drawGraph(`comp-${i}`, nodes, edges, { spacing: 1.1 });
+  });
+}
+
+// ---------- View: over time ----------
+function fillLeafSelect() {
+  const sel = document.getElementById("leaf"), prev = sel.value;
+  if (!analysis) { sel.innerHTML = ""; return; }
+  sel.innerHTML = analysis.leaves.map((l, i) => `<option value="${i}">${escapeHtml(l)}</option>`).join("");
+  if (prev && +prev < analysis.leaves.length) sel.value = prev;
+}
+
+function niceTicks(max, count) {
+  if (max <= 0) return [0];
+  const raw = max / count, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  const ticks = [];
+  for (let v = 0; v <= max + step * 1e-9; v += step) ticks.push(+v.toPrecision(10));
+  return ticks;
+}
+
+function renderTime() {
+  const host = document.getElementById("chart"), legend = document.getElementById("time-legend"), note = document.getElementById("time-note");
+  if (!analysis) { host.innerHTML = `<p class="hint">Fix the model's errors to see its behaviour over time.</p>`; legend.innerHTML = ""; note.textContent = ""; return; }
+  const horizon = Math.max(0.1, +document.getElementById("horizon").value || 100);
+  const N = 120, times = Array.from({ length: N + 1 }, (_, i) => (horizon * i) / N);
+  const res = api({ op: "transient", source: editorA.value, times, max_states: 5000 });
+  if (res.error) { host.innerHTML = `<p class="hint">${escapeHtml(res.error.map((d) => d.message).join("; "))}</p>`; return; }
+  const leafName = analysis.leaves[+document.getElementById("leaf").value || 0];
+  const all = res.ok.occupancy.filter((s) => s.component === leafName);
+  const series = all.slice(0, 8);
+  const isArray = /\[\d+\]$/.test(leafName);
+  const yLabel = isArray ? "expected copies" : "probability";
+  note.textContent = (all.length > 8 ? `Showing the first 8 of ${all.length} derivatives. ` : "") +
+    (isArray ? `Expected number of ${leafName.replace(/\[\d+\]$/, "")} copies in each derivative, from the initial state.` : `Probability that ${leafName} is in each derivative, from the initial state.`);
+
+  const W = 640, H = 300, m = { l: 44, r: 96, t: 10, b: 32 };
+  const ymax = Math.max(1e-9, ...series.flatMap((s) => s.values));
+  const yt = niceTicks(ymax, 4), yTop = yt[yt.length - 1];
+  const xt = niceTicks(horizon, 5).filter((t) => t <= horizon + 1e-9);
+  const x = (t) => m.l + ((W - m.l - m.r) * t) / horizon, y = (v) => m.t + (H - m.t - m.b) * (1 - v / yTop);
+  const fmtTick = (v) => +v.toPrecision(4) + "";
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(yLabel)} over time for ${escapeHtml(leafName)}">`;
+  svg += `<g class="grid">${yt.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/>`).join("")}</g>`;
+  svg += `<line class="baseline" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
+  svg += `<g class="axis">${yt.map((v) => `<text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${fmtTick(v)}</text>`).join("")}`;
+  svg += xt.map((t) => `<text x="${x(t)}" y="${H - m.b + 16}" text-anchor="middle">${fmtTick(t)}</text>`).join("");
+  svg += `<text x="${W - m.r}" y="${H - 2}" text-anchor="end">time (${unitLabel()})</text></g>`;
+  // End labels, nudged apart so they never overlap.
+  const ends = series.map((s, i) => ({ i, y: y(s.values[N]) })).sort((a, b) => a.y - b.y);
+  for (let k = 1; k < ends.length; k++) if (ends[k].y - ends[k - 1].y < 14) ends[k].y = ends[k - 1].y + 14;
+  svg += `<g class="series">${series.map((s, i) => `<path stroke="${seriesColor(i)}" d="${s.values.map((v, k) => `${k ? "L" : "M"}${x(times[k]).toFixed(1)},${y(v).toFixed(1)}`).join("")}"/>`).join("")}</g>`;
+  if (series.length <= 4) svg += ends.map((e) => `<text class="endlabel" x="${W - m.r + 6}" y="${e.y + 4}">${escapeHtml(series[e.i].derivative)}</text>`).join("");
+  svg += `<line class="cross" id="cross" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" visibility="hidden"/>`;
+  svg += `<rect id="hit" x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent"/></svg>`;
+  host.innerHTML = svg + `<div class="tooltip" id="tip" hidden></div>`;
+  legend.innerHTML = series.length > 1 ? series.map((s, i) => `<span><span class="sw" style="background:${seriesColor(i)}"></span>${escapeHtml(s.derivative)}</span>`).join("") : "";
+
+  const svgEl = host.querySelector("svg"), cross = host.querySelector("#cross"), tip = host.querySelector("#tip");
+  const move = (ev) => {
+    const r = svgEl.getBoundingClientRect(), sx = ((ev.clientX - r.left) / r.width) * W;
+    const k = Math.max(0, Math.min(N, Math.round(((sx - m.l) / (W - m.l - m.r)) * N)));
+    const px = x(times[k]);
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+    tip.hidden = false;
+    tip.innerHTML = `<div class="row"><b>t = ${fmtTick(times[k])} ${unitLabel()}</b></div>` + series
+      .map((s, i) => ({ s, i })).sort((a, b) => b.s.values[k] - a.s.values[k])
+      .map(({ s, i }) => `<div class="row"><span><span class="sw" style="background:${seriesColor(i)}"></span> ${escapeHtml(s.derivative)}</span><span class="v">${s.values[k].toFixed(3)}</span></div>`).join("");
+    const left = (px / W) * r.width;
+    tip.style.left = Math.min(left + 12, r.width - tip.offsetWidth - 4) + "px";
+    tip.style.top = "8px";
+  };
+  svgEl.addEventListener("pointermove", move);
+  svgEl.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); tip.hidden = true; });
+}
+
+// ---------- View: compare ----------
+const VERDICTS = [
+  ["markovian_bisimilar", "Same behaviour and rates", "Markovian bisimulation"],
+  ["bisimilar", "Same branching, rates ignored", "Bisimulation"],
+  ["mutually_similar", "Each can mimic the other", "Mutual simulation"],
+  ["b_simulates_a", "B can mimic A", "Simulation"],
+];
+
+function runCompare() {
+  if (!wasm) return;
+  const diags = api({ op: "check", source: editorB.value }).ok;
+  const firstErr = diags.find((d) => d.severity === "error" && d.line > 0);
+  editorB.setError(firstErr ? { line: firstErr.line, column: firstErr.column } : null);
+  const okB = showDiagnostics(document.getElementById("diag-b"), document.getElementById("status-b"), diags, "valid");
+  const host = document.getElementById("verdicts");
+  if (!okB || !analysis) {
+    comparison = null;
+    host.innerHTML = `<p class="hint">${!analysis ? "Fix model A first." : "Fix model B to compare."}</p>`;
+    drawCompareGraphs();
+    return;
+  }
+  const res = api({ op: "compare", a: editorA.value, b: editorB.value, max_states: 2000 });
+  if (res.error) { comparison = null; host.innerHTML = `<p class="hint">${escapeHtml([...res.error.a, ...res.error.b].map((d) => d.message).join("; "))}</p>`; drawCompareGraphs(); return; }
+  comparison = res.ok;
+  if (!activeVerdict || comparison[activeVerdict].holds) activeVerdict = VERDICTS.map((v) => v[0]).find((k) => !comparison[k].holds) || null;
+  host.innerHTML = VERDICTS.map(([key, title, tech]) => {
+    const v = comparison[key];
+    const pill = v.holds ? `<span class="pill ok">✓ holds</span>` : `<span class="pill bad">✕ differs</span>`;
+    const body = v.holds ? `<div class="why">${escapeHtml(v.explanation)}</div>`
+      : `<div><div class="formula">${escapeHtml(v.formula)} <span class="hint">holds in ${v.formula_holds_in}</span></div><div class="why">${escapeHtml(v.explanation.split(" Read ")[0])}</div></div>`;
+    const tag = v.holds ? "div" : "button";
+    return `<${tag} class="verdict${key === activeVerdict ? " active" : ""}" data-key="${key}" ${v.holds ? "" : `type="button" aria-pressed="${key === activeVerdict}"`}><div class="name">${title}<span class="hint">${tech}</span>${pill}</div>${body}</${tag}>`;
+  }).join("") + `<p class="hint">Read ⟨a⟩φ as “can do a, then φ”; ⟨a⟩=r φ as “does a at total rate r s⁻¹ into states where φ holds”; ¬ as “not”; tt as “true”.</p>`;
+  host.querySelectorAll("button.verdict").forEach((b) => b.addEventListener("click", () => { activeVerdict = b.dataset.key; runCompare(); }));
+  drawCompareGraphs();
+}
+
+function drawCompareGraphs() {
+  const resA = analysis ? analysis.full : null;
+  const resB = comparison ? api({ op: "analyse", source: editorB.value, max_states: 2000 }).ok?.full : null;
+  const v = comparison && activeVerdict ? comparison[activeVerdict] : null;
+  const toGraph = (g, sat) => g ? [
+    g.states.map((s) => ({ id: s.id, label: s.name, initial: s.initial, hl: sat.includes(s.id) })),
+    g.transitions.map((t) => ({ source: t.source, target: t.target, label: `${t.action} ${fmtRate(t.rate)}` })),
+  ] : [[], []];
+  const [na, ea] = toGraph(resA, v ? v.satisfied_in_a : []);
+  const [nb, eb] = toGraph(resB, v ? v.satisfied_in_b : []);
+  drawGraph("graph-a", na, ea, { spacing: 1.05 });
+  drawGraph("graph-b", nb, eb, { spacing: 1.05 });
+}
+
+// ---------- Time unit (shared by Over time and Observations) ----------
+const UNIT_LABEL = { second: "s", minute: "min", hour: "h", day: "days", week: "weeks" };
+let timeUnit = "second";
+const unitLabel = () => UNIT_LABEL[timeUnit];
+function setUnit(u) {
+  timeUnit = u;
+  document.getElementById("unit").value = u;
+  document.getElementById("obs-unit").value = u;
+  store.set("unit", u);
+}
+
+// ---------- View: observations ----------
+let obsState = { start: "15/05/2026", unit: "day", level: "0.95", rows: [] };
+let obsReport = null, fitResult = null, obsTimer = 0;
+function saveObs() { store.set("obs", JSON.stringify(obsState)); }
+function scheduleObserve() { clearTimeout(obsTimer); obsTimer = setTimeout(runObserve, 250); }
+
+function leafOptions() { return analysis ? analysis.leaves : []; }
+function stageOptions() {
+  if (!analysis) return [];
+  const names = analysis.components.flatMap((c) => c.states);
+  const stages = [];
+  for (const n of names) {
+    const m = n.match(/^(.*)_\d+$/);
+    const st = m && m[1] ? m[1] : n;
+    if (/^[A-Za-z_][A-Za-z0-9_']*$/.test(st) && !stages.includes(st)) stages.push(st);
+  }
+  return stages;
+}
+
+function renderObsInputs() {
+  document.getElementById("obs-start").value = obsState.start;
+  document.getElementById("obs-unit").value = obsState.unit;
+  document.getElementById("obs-level").value = obsState.level;
+  const leaves = leafOptions(), multi = leaves.length > 1, stages = stageOptions();
+  const table = document.getElementById("obs-table");
+  table.innerHTML = `<thead><tr><th>Date</th>${multi ? "<th>Component</th>" : ""}<th>State</th><th class="num">Count</th><th></th></tr></thead><tbody>` +
+    obsState.rows.map((r, i) => `<tr data-i="${i}">
+      <td><input class="date" id="obs-date-${i}" data-f="date" value="${escapeHtml(r.date)}" placeholder="dd/mm/yyyy" aria-label="Date of count ${i + 1}"></td>
+      ${multi ? `<td><select id="obs-comp-${i}" data-f="component" aria-label="Component of count ${i + 1}">${leaves.map((l) => `<option${l === r.component ? " selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></td>` : ""}
+      <td><input id="obs-state-${i}" data-f="state" list="obs-stages" value="${escapeHtml(r.state)}" aria-label="State of count ${i + 1}"></td>
+      <td class="num"><input class="count" id="obs-count-${i}" data-f="count" type="number" min="0" step="1" value="${r.count}" aria-label="Count ${i + 1}"></td>
+      <td><button class="btn icon" type="button" data-remove="${i}" aria-label="Remove count ${i + 1}">✕</button></td></tr>`).join("") +
+    `</tbody><datalist id="obs-stages">${stages.map((s) => `<option value="${escapeHtml(s)}">`).join("")}</datalist>`;
+  table.querySelectorAll("input, select").forEach((el) => el.addEventListener("input", () => {
+    const i = +el.closest("tr").dataset.i, f = el.dataset.f;
+    obsState.rows[i][f] = f === "count" ? Math.max(0, parseInt(el.value || "0", 10)) : el.value;
+    saveObs(); scheduleObserve();
+  }));
+  table.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => {
+    obsState.rows.splice(+b.dataset.remove, 1); saveObs(); renderObsInputs(); runObserve();
+  }));
+  const params = pepaParams();
+  const box = document.getElementById("fit-params");
+  const prev = new Set([...box.querySelectorAll("input:checked")].map((c) => c.value));
+  box.innerHTML = params.length ? params.map((p, i) => `<label><input type="checkbox" id="fit-p-${i}" value="${escapeHtml(p)}"${prev.has(p) ? " checked" : ""}> ${escapeHtml(p)}</label>`).join("") : `<span class="hint">The model has no rate parameters (lines like <span class="mono">veg_days = 28;</span>).</span>`;
+}
+
+function pepaParams() {
+  return [...editorA.value.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "").matchAll(/^\s*([a-z_][A-Za-z0-9_']*)\s*=/gm)].map((m) => m[1]);
+}
+
+function observationsPayload() {
+  const multi = leafOptions().length > 1;
+  return obsState.rows.filter((r) => r.date && r.state).map((r) => {
+    const o = { date: r.date.trim(), state: r.state.trim(), count: +r.count || 0 };
+    if (multi) o.component = r.component || leafOptions()[0];
+    return o;
+  });
+}
+const timeline = () => ({ start: obsState.start.trim(), unit: obsState.unit, level: +obsState.level });
+
+function runObserve() {
+  const result = document.getElementById("obs-result");
+  const hideChart = () => { ["obs-chart-controls", "obs-legend", "obs-results-wrap"].forEach((id) => (document.getElementById(id).hidden = true)); document.getElementById("obs-chart").innerHTML = ""; };
+  if (!wasm) return;
+  if (!analysis) { result.innerHTML = `<p class="hint">Fix model A first.</p>`; hideChart(); return; }
+  renderObsInputsIfStale();
+  const obs = observationsPayload();
+  if (!obs.length) { result.innerHTML = `<p class="hint">Add a count to compare with the plan.</p>`; hideChart(); obsReport = null; return; }
+  const r = api({ op: "observe", source: editorA.value, timeline: timeline(), observations: obs, max_states: 5000 });
+  if (r.error) { result.innerHTML = r.error.map((d) => `<div class="diag"><span class="pill bad">error</span><span>${escapeHtml(d.message)}</span></div>`).join(""); hideChart(); obsReport = null; return; }
+  obsReport = r.ok;
+  const on = obsReport.on_track;
+  result.innerHTML = `<div class="verdict-banner ${on ? "on" : "off"}"><span class="pill ${on ? "ok" : "bad"}">${on ? "✓ on track" : "✕ off plan"}</span><div><p>${escapeHtml(obsReport.explanation)}</p><p class="hint">${obsReport.methods.map(escapeHtml).join("; ")}.</p></div></div>`;
+
+  const pill = (st) => st === "on_track" ? `<span class="pill ok">in range</span>` : `<span class="pill bad">${st === "above_plan" ? "▲ above" : "▼ below"}</span>`;
+  const multi = leafOptions().length > 1;
+  document.getElementById("obs-results").innerHTML = `<thead><tr><th>Date</th><th class="num">Day</th>${multi ? "<th>Component</th>" : ""}<th>State</th><th class="num">Counted</th><th class="num">Expected</th><th class="num">Range</th><th class="num">p-value</th><th></th></tr></thead><tbody>` +
+    obsReport.rows.map((x) => `<tr><td class="mono">${x.date}</td><td class="num">${+x.elapsed.toFixed(2)}</td>${multi ? `<td>${escapeHtml(x.component)}</td>` : ""}<td>${escapeHtml(x.state)}</td><td class="num">${x.observed}</td><td class="num">${x.expected.toFixed(1)}</td><td class="num">${x.low}–${x.high}</td><td class="num">${x.p_value < 0.0001 ? "<0.0001" : x.p_value.toFixed(4)}</td><td>${pill(x.status)}</td></tr>`).join("") + `</tbody>`;
+  document.getElementById("obs-results").querySelector("th:nth-child(2)").textContent = UNIT_LABEL[obsState.unit] === "days" ? "Day" : `Time (${UNIT_LABEL[obsState.unit]})`;
+
+  const sel = document.getElementById("obs-state"), prev = sel.value;
+  const keys = [...new Set(obsReport.rows.map((x) => x.component + "\u0000" + x.state))];
+  sel.innerHTML = keys.map((k) => { const [c, st] = k.split("\u0000"); return `<option value="${escapeHtml(k)}">${escapeHtml(multi ? `${c}: ${st}` : st)}</option>`; }).join("");
+  const firstOff = obsReport.rows.find((x) => x.status !== "on_track");
+  sel.value = keys.includes(prev) ? prev : firstOff ? firstOff.component + "\u0000" + firstOff.state : keys[0];
+  ["obs-chart-controls", "obs-legend", "obs-results-wrap"].forEach((id) => (document.getElementById(id).hidden = false));
+  drawObsChart();
+}
+
+let obsInputsFor = null;
+function renderObsInputsIfStale() {
+  const key = editorA.value;
+  if (obsInputsFor !== key) { obsInputsFor = key; renderObsInputs(); }
+}
+
+function drawObsChart() {
+  const host = document.getElementById("obs-chart");
+  if (!obsReport) { host.innerHTML = ""; return; }
+  const [component, state] = document.getElementById("obs-state").value.split("\u0000");
+  const rows = obsReport.rows.filter((x) => x.component === component && x.state === state);
+  const horizon = Math.max(1, Math.max(...obsReport.rows.map((x) => x.elapsed)) * 1.3);
+  const N = 120, times = Array.from({ length: N + 1 }, (_, i) => (horizon * i) / N);
+  const r = api({ op: "forecast", source: editorA.value, timeline: timeline(), component, state, times, max_states: 5000 });
+  if (r.error) { host.innerHTML = `<p class="hint">${escapeHtml(r.error.map((d) => d.message).join("; "))}</p>`; return; }
+  const f = r.ok;
+  const W = 640, H = 260, m = { l: 40, r: 16, t: 10, b: 40 };
+  const ymax = Math.max(1, ...f.high, ...rows.map((x) => x.observed));
+  const yt = niceTicks(ymax, 4), yTop = yt[yt.length - 1];
+  const x = (t) => m.l + ((W - m.l - m.r) * t) / horizon, y = (v) => m.t + (H - m.t - m.b) * (1 - v / yTop);
+  const xt = niceTicks(horizon, 6).filter((t) => t <= horizon + 1e-9);
+  const byDate = obsState.unit === "day" || obsState.unit === "week";
+  const tickDate = (t) => { const i = Math.round((t / horizon) * N); const d = f.dates[i] || ""; return d.slice(0, 5); };
+  // Step band: each forecast sample covers half a step either side.
+  const half = horizon / N / 2;
+  let band = "";
+  f.elapsed.forEach((t, i) => { band += `${i ? "L" : "M"}${x(Math.max(0, t - half)).toFixed(1)},${y(f.high[i]).toFixed(1)}L${x(Math.min(horizon, t + half)).toFixed(1)},${y(f.high[i]).toFixed(1)}`; });
+  for (let i = f.elapsed.length - 1; i >= 0; i--) { const t = f.elapsed[i]; band += `L${x(Math.min(horizon, t + half)).toFixed(1)},${y(f.low[i]).toFixed(1)}L${x(Math.max(0, t - half)).toFixed(1)},${y(f.low[i]).toFixed(1)}`; }
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Plan range and counts for ${escapeHtml(state)}">`;
+  svg += `<g class="grid">${yt.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/>`).join("")}</g>`;
+  svg += `<path class="band" d="${band}Z"/>`;
+  svg += `<g class="series"><path stroke="${seriesColor(0)}" d="${f.expected.map((v, i) => `${i ? "L" : "M"}${x(f.elapsed[i]).toFixed(1)},${y(v).toFixed(1)}`).join("")}"/></g>`;
+  svg += `<line class="baseline" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
+  svg += `<g class="axis">${yt.map((v) => `<text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${+v.toPrecision(4)}</text>`).join("")}`;
+  svg += xt.map((t) => `<text x="${x(t)}" y="${H - m.b + 15}" text-anchor="middle">${+t.toPrecision(4)}</text>${byDate ? `<text x="${x(t)}" y="${H - m.b + 28}" text-anchor="middle">${tickDate(t)}</text>` : ""}`).join("");
+  svg += `<text x="${W - m.r}" y="${H - 1}" text-anchor="end">${UNIT_LABEL[obsState.unit]} since ${escapeHtml(obsReport.start)}</text></g>`;
+  svg += rows.map((o) => `<circle class="obs-dot" cx="${x(o.elapsed)}" cy="${y(o.observed)}" r="5.5" fill="${o.status === "on_track" ? css("--ok") : css("--bad")}"><title>${o.date}: ${o.observed} counted, ${o.expected.toFixed(1)} expected (range ${o.low}–${o.high})</title></circle>`).join("");
+  svg += `<line class="cross" id="obs-cross" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" visibility="hidden"/>`;
+  svg += `<rect id="obs-hit" x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" fill="transparent"/></svg>`;
+  host.innerHTML = svg + `<div class="tooltip" id="obs-tip" hidden></div>`;
+  const svgEl = host.querySelector("svg"), cross = host.querySelector("#obs-cross"), tip = host.querySelector("#obs-tip");
+  svgEl.addEventListener("pointermove", (ev) => {
+    const rect = svgEl.getBoundingClientRect(), sx = ((ev.clientX - rect.left) / rect.width) * W;
+    const k = Math.max(0, Math.min(N, Math.round(((sx - m.l) / (W - m.l - m.r)) * N)));
+    const px = x(f.elapsed[k]);
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+    tip.hidden = false;
+    tip.innerHTML = `<div class="row"><b>${f.dates[k]}</b><span class="v">${+f.elapsed[k].toFixed(1)} ${UNIT_LABEL[obsState.unit]}</span></div>
+      <div class="row"><span>expected</span><span class="v">${f.expected[k].toFixed(1)}</span></div>
+      <div class="row"><span>${Math.round(+obsState.level * 100)} % range</span><span class="v">${f.low[k]}–${f.high[k]}</span></div>`;
+    tip.style.left = Math.min((px / W) * rect.width + 12, rect.width - tip.offsetWidth - 4) + "px";
+    tip.style.top = "8px";
+  });
+  svgEl.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); tip.hidden = true; });
+}
+
+function runFit() {
+  const out = document.getElementById("fit-result");
+  const params = [...document.querySelectorAll("#fit-params input:checked")].map((c) => c.value);
+  if (!params.length) { out.innerHTML = `<p class="hint">Tick at least one parameter.</p>`; return; }
+  const r = api({ op: "fit", source: editorA.value, timeline: timeline(), observations: observationsPayload(), params, max_states: 5000 });
+  if (r.error) { out.innerHTML = r.error.map((d) => `<div class="diag"><span class="pill bad">error</span><span>${escapeHtml(d.message)}</span></div>`).join(""); return; }
+  fitResult = r.ok;
+  out.innerHTML = `<p>${escapeHtml(fitResult.explanation)}</p>
+    <div class="table-wrap"><table><thead><tr><th>Parameter</th><th class="num">Plan</th><th class="num">Fitted</th><th class="num">Ratio</th></tr></thead><tbody>${fitResult.params.map((p) => `<tr><td class="mono">${escapeHtml(p.name)}</td><td class="num">${+p.planned.toPrecision(4)}</td><td class="num">${+p.fitted.toPrecision(4)}</td><td class="num">×${p.ratio.toFixed(2)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="hint">With the fitted values: ${escapeHtml(fitResult.fitted_check.explanation)}</p>
+    <div><button class="btn" id="fit-compare" type="button">Compare plan with fitted model</button></div>`;
+  document.getElementById("fit-compare").addEventListener("click", () => {
+    editorB.value = fitResult.fitted_source; store.set("b", editorB.value); presetSel.value = ""; setView("compare");
+  });
+}
+
+document.getElementById("obs-add").addEventListener("click", () => {
+  const last = obsState.rows[obsState.rows.length - 1];
+  obsState.rows.push({ date: last ? last.date : obsState.start, state: last ? last.state : (stageOptions()[0] || ""), count: 0, component: last ? last.component : "" });
+  saveObs(); renderObsInputs(); runObserve();
+});
+document.getElementById("obs-start").addEventListener("input", (e) => { obsState.start = e.target.value; saveObs(); scheduleObserve(); });
+document.getElementById("obs-unit").addEventListener("change", (e) => { obsState.unit = e.target.value; setUnit(e.target.value); saveObs(); runObserve(); });
+document.getElementById("obs-level").addEventListener("change", (e) => { obsState.level = e.target.value; saveObs(); runObserve(); });
+document.getElementById("obs-state").addEventListener("change", drawObsChart);
+document.getElementById("fit-run").addEventListener("click", runFit);
+document.getElementById("unit").addEventListener("change", (e) => { setUnit(e.target.value); renderTime(); });
+
+// ---------- Wiring ----------
+function setView(view) {
+  activeView = view;
+  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === view)));
+  for (const v of ["space", "components", "time", "observe", "compare"]) document.getElementById("view-" + v).hidden = v !== view;
+  store.set("view", view);
+  renderView();
+}
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setView(t.dataset.view)));
+document.getElementById("show-full").addEventListener("click", () => { showLumped = false; updateSeg(); renderSpace(); });
+document.getElementById("show-lumped").addEventListener("click", () => { showLumped = true; updateSeg(); renderSpace(); });
+function updateSeg() {
+  document.getElementById("show-full").setAttribute("aria-pressed", String(!showLumped));
+  document.getElementById("show-lumped").setAttribute("aria-pressed", String(showLumped));
+}
+document.getElementById("horizon").addEventListener("change", renderTime);
+document.getElementById("leaf").addEventListener("change", renderTime);
+
+const exampleSel = document.getElementById("example");
+exampleSel.innerHTML = Object.keys(EXAMPLES).map((k) => `<option>${k}</option>`).join("") + `<option value="">(your draft)</option>`;
+exampleSel.addEventListener("change", () => {
+  if (!exampleSel.value) return;
+  editorA.value = EXAMPLES[exampleSel.value];
+  store.set("a", editorA.value);
+  document.getElementById("horizon").value = { "Herd health": 100, "Tomato bed": 120 }[exampleSel.value] || 6;
+  setUnit(EXAMPLE_UNIT[exampleSel.value] || "second");
+  const ex = EXAMPLE_OBS[exampleSel.value];
+  obsState = ex
+    ? { start: ex.start, unit: ex.unit, level: "0.95", rows: ex.rows.map(([date, state, count]) => ({ date, state, count, component: "" })) }
+    : { ...obsState, unit: EXAMPLE_UNIT[exampleSel.value] || obsState.unit, rows: [] };
+  saveObs(); obsInputsFor = null;
+  const pair = { "Herd health": "No recovery (vs herd)", "Hillston cycle": "Array form (vs cycle)" }[exampleSel.value];
+  if (pair) { presetSel.value = pair; editorB.value = PRESETS_B[pair]; store.set("b", editorB.value); }
+  schedule();
+});
+const presetSel = document.getElementById("preset-b");
+presetSel.innerHTML = Object.keys(PRESETS_B).map((k) => `<option>${k}</option>`).join("") + `<option value="">(your draft)</option>`;
+presetSel.addEventListener("change", () => { if (!presetSel.value) return; editorB.value = PRESETS_B[presetSel.value]; store.set("b", editorB.value); scheduleCompare(); });
+
+// Restore the viewer's drafts, otherwise start from the herd example.
+try { const saved = JSON.parse(store.get("obs") || "null"); if (saved && Array.isArray(saved.rows)) obsState = saved; } catch { /* ignore a broken draft */ }
+if (!obsState.rows.length) { const ex = EXAMPLE_OBS["Tomato bed"]; obsState = { start: ex.start, unit: ex.unit, level: "0.95", rows: ex.rows.map(([date, state, count]) => ({ date, state, count, component: "" })) }; }
+const savedA = store.get("a"), savedB = store.get("b");
+const firstVisit = !savedA;
+setUnit(store.get("unit") || (firstVisit ? "day" : "second"));
+editorA.value = savedA || EXAMPLES["Tomato bed"];
+if (firstVisit) { document.getElementById("horizon").value = 120; activeView = "observe"; }
+exampleSel.value = Object.keys(EXAMPLES).find((k) => EXAMPLES[k] === editorA.value) ?? "";
+editorB.value = savedB || PRESETS_B["No recovery (vs herd)"];
+presetSel.value = Object.keys(PRESETS_B).find((k) => PRESETS_B[k] === editorB.value) ?? presetSel.value;
+
+// Re-colour graphs and the chart when the theme changes.
+const reTheme = () => { restyleGraphs(); if (activeView === "space") renderSpace(); if (activeView === "time") renderTime(); if (activeView === "observe") drawObsChart(); };
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", reTheme);
+new MutationObserver(reTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+(async function boot() {
+  const dot = document.getElementById("engine-dot"), text = document.getElementById("engine-text");
+  try {
+    const bytes = await (await fetch("bisim_wasm.wasm")).arrayBuffer();
+    const { instance } = await WebAssembly.instantiate(bytes, {});
+    wasm = instance.exports;
+    dot.classList.add("ready");
+    text.textContent = "Rust engine · WebAssembly";
+  } catch (e) {
+    dot.classList.add("failed");
+    text.textContent = "engine failed to load";
+    document.getElementById("diag-a").innerHTML = `<div class="diag"><span class="pill bad">error</span><span>The analysis engine could not be loaded (${escapeHtml(String(e.message || e))}). Reload the page to try again.</span></div>`;
+    return;
+  }
+  const savedView = store.get("view");
+  if (savedView && ["space", "components", "time", "observe", "compare"].includes(savedView)) activeView = savedView;
+  setView(activeView);
+  runA();
+})();
+</script>

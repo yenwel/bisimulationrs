@@ -1,0 +1,23 @@
+[package]
+name = "bisim-wasm"
+description = "WebAssembly module for the PEPA editor and visualiser (JSON in, JSON out)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bisim-api.workspace = true
+
+# Raw pointers cross the wasm boundary, so this crate (only) needs `unsafe`.
+[lints.rust]
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

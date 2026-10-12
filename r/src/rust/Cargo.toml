@@ -1,0 +1,25 @@
+[package]
+name = 'bisimrs'
+publish = false
+version = '0.2.0'
+edition = '2024'
+rust-version = '1.85'
+
+# Built by R CMD INSTALL, not part of the repository's Cargo workspace.
+[workspace]
+
+[lib]
+crate-type = [ 'rlib', 'staticlib' ]
+name = 'bisimrs'
+
+[[bin]]
+name = 'document'
+path = 'document.rs'
+
+[dependencies]
+extendr-api = '0.9'
+bisim-api = { path = '../../../crates/bisim-api' }
+
+[profile.release]
+lto = true
+codegen-units = 1

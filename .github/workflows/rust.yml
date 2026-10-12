@@ -11,12 +11,50 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+        targets: wasm32-unknown-unknown
+    - name: Format
+      run: cargo fmt --all --check
+    - name: Clippy
+      run: cargo clippy --workspace --all-targets -- -D warnings
+    - name: Test
+      run: cargo test --workspace --verbose
+    - name: Build web engine (WebAssembly)
+      run: cargo build -p bisim-wasm --release --target wasm32-unknown-unknown
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Build and test
+      working-directory: python
+      run: |
+        python -m venv .venv
+        . .venv/bin/activate
+        pip install maturin pytest pandas
+        maturin develop --release
+        pytest -q
+
+  r:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: r-lib/actions/setup-r@v2
+    - name: Install R dependencies
+      run: Rscript -e 'install.packages(c("jsonlite", "testthat"))'
+    - name: Install and test
+      env:
+        NOT_CRAN: "true"
+      run: |
+        R CMD INSTALL r
+        Rscript -e 'testthat::test_dir("r/tests/testthat", package = "bisimulationrs", load_package = "installed", stop_on_failure = TRUE)'

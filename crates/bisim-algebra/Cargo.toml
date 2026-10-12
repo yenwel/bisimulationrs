@@ -1,0 +1,18 @@
+[package]
+name = "bisim-algebra"
+description = "Process-algebra front ends (PEPA) and structural operational semantics for bisimulationrs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bisim-core.workspace = true
+
+[dev-dependencies]
+bisim-refine.workspace = true
+
+[lints]
+workspace = true

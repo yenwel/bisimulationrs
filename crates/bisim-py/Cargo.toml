@@ -1,0 +1,21 @@
+[package]
+name = "bisim-py"
+description = "Native extension of the `bisimulationrs` Python package (built with maturin)."
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Jan Vandepitte"]
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Built by maturin from `python/`, not by `cargo test --workspace`:
+# extension modules link against the Python interpreter that loads them.
+[workspace]
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+bisim-api = { path = "../bisim-api" }
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }
