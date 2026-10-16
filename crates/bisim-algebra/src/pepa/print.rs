@@ -49,6 +49,7 @@ impl<A: Action> PepaModel<A> {
         match r {
             RateExpr::Lit(v) => format!("{v}"),
             RateExpr::Param(id) => self.params[id.0 as usize].0.clone(),
+            RateExpr::Count(n) => format!("#{n}"),
             RateExpr::Passive(w) if **w == RateExpr::Lit(1.0) => "infty".to_owned(),
             RateExpr::Passive(w) => format!("{} * infty", self.rate_operand(w)),
             RateExpr::Add(a, b) => self.binary(a, "+", b),
@@ -64,7 +65,7 @@ impl<A: Action> PepaModel<A> {
 
     fn rate_operand(&self, r: &RateExpr) -> String {
         match r {
-            RateExpr::Lit(_) | RateExpr::Param(_) => self.show_rate(r),
+            RateExpr::Lit(_) | RateExpr::Param(_) | RateExpr::Count(_) => self.show_rate(r),
             _ => format!("({})", self.show_rate(r)),
         }
     }

@@ -3,6 +3,7 @@ use std::fmt;
 
 use super::ast::{Action, ModelTerm, PepaModel, RateExpr, Seq, SeqId};
 use super::parse::ParseError;
+use super::rate::Rate;
 
 /// Errors raised when building, parsing, validating or deriving a model.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +23,22 @@ pub enum PepaError {
     EmptyArray(String),
     /// A passive action that no active partner synchronises with.
     UnsynchronisedPassive(String),
+    /// A functional rate `#Name` refers to a local derivative that never
+    /// occurs; `available` lists the derivative names it could use.
+    UndefinedSpecies {
+        name: String,
+        available: Vec<String>,
+    },
+    /// A functional rate evaluated to a negative or non-finite value.
+    InvalidFunctionalRate {
+        action: String,
+        value: f64,
+    },
+    /// Fluid approximation needs array populations (`P[n]`); a single
+    /// component has no mean field.
+    FluidRequiresArrays {
+        component: String,
+    },
     /// One component offers the same action both actively and passively.
     MixedRates {
         action: String,
@@ -56,6 +73,19 @@ impl fmt::Display for PepaError {
             PepaError::UnsynchronisedPassive(a) => write!(
                 f,
                 "passive action `{a}` is not synchronised with an active partner"
+            ),
+            PepaError::UndefinedSpecies { name, available } => write!(
+                f,
+                "species count `#{name}` matches no local derivative; available: {}",
+                available.join(", ")
+            ),
+            PepaError::InvalidFunctionalRate { action, value } => write!(
+                f,
+                "functional rate of `{action}` evaluated to {value}; rates must stay finite and non-negative"
+            ),
+            PepaError::FluidRequiresArrays { component } => write!(
+                f,
+                "fluid approximation needs array populations; `{component}` is a single component"
             ),
             PepaError::MixedRates { action } => write!(
                 f,
@@ -152,7 +182,11 @@ impl<A: Action> PepaModel<A> {
     fn check_rates(&self, name: &str, s: &Seq<A>) -> Result<(), PepaError> {
         match s {
             Seq::Prefix(a, r, k) => {
+                // Functional rates are checked per state at derivation
+                // (their value depends on the global state); static rates
+                // must be positive and finite here.
                 let ok = match r.eval(&self.params) {
+                    Some(Rate::Functional(_)) => true,
                     Some(rate) => rate.value() > 0.0,
                     None => false,
                 } && !matches!(r, RateExpr::Passive(w) if contains_passive(w));
@@ -307,7 +341,7 @@ impl<A: Action> PepaModel<A> {
 fn contains_passive(r: &RateExpr) -> bool {
     match r {
         RateExpr::Passive(_) => true,
-        RateExpr::Lit(_) | RateExpr::Param(_) => false,
+        RateExpr::Lit(_) | RateExpr::Param(_) | RateExpr::Count(_) => false,
         RateExpr::Add(a, b) | RateExpr::Sub(a, b) | RateExpr::Mul(a, b) | RateExpr::Div(a, b) => {
             contains_passive(a) || contains_passive(b)
         }

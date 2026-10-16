@@ -4,9 +4,10 @@
 //! This facade re-exports the workspace crates:
 //!
 //! - [`core`]: weighted transition systems, semirings, partitions, verdicts;
-//! - [`refine`]: bisimilarity, simulation, distinguishing formulas;
+//! - [`refine`]: bisimilarity, simulation, distinguishing formulas,
+//!   quasi-`(ε, δ)` checks with distances;
 //! - [`algebra`]: PEPA models (builder, `.pepa` parser, [`pepa!`]) and SOS;
-//! - [`stochastic`]: CTMC steady-state and transient analysis;
+//! - [`stochastic`]: CTMC steady-state/transient analysis and Gillespie SSA;
 //! - [`legacy`]: the 0.1 API, kept for compatibility.
 //!
 //! ```

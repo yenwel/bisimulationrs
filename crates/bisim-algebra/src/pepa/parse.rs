@@ -1,9 +1,12 @@
-//! Parser for the textual PEPA syntax of the PEPA Eclipse plug-in.
+//! Parser for the textual PEPA syntax of the PEPA Eclipse plug-in,
+//! extended with Bio-PEPA-style functional rates `#Name` (the current
+//! number of copies in local derivative `Name`, evaluated per state).
 //!
 //! ```text
 //! r = 0.02;                         // rate parameter (lower-case name)
 //! P = (a, r).Q + (b, 2 * r).P;      // sequential component (upper-case name)
 //! Q = (a, infty).P;                 // passive rate; also `w * infty`
+//! S = (infect, beta * #I).I;        // functional rate: mass action
 //! Dead = 0;                         // deadlocked / absorbing
 //! Sys = P[3] <a> Q;                 // named model component (inlined)
 //! Sys / {b}                         // system equation (last, no `=`)
@@ -62,8 +65,8 @@ struct Token {
     column: usize,
 }
 
-const SYMBOLS: [&str; 15] = [
-    "||", "=", ";", "(", ")", ",", ".", "+", "-", "*", "/", "<", ">", "[", "]",
+const SYMBOLS: [&str; 16] = [
+    "||", "=", ";", "(", ")", ",", ".", "+", "-", "*", "/", "<", ">", "[", "]", "#",
 ];
 
 fn lex(src: &str) -> Result<Vec<Token>, ParseError> {
@@ -186,8 +189,20 @@ fn err_at(line: usize, column: usize, message: &str) -> ParseError {
 enum RawRate {
     Num(f64),
     Name(String, (usize, usize)),
+    /// Species count `#{name}` with its source position.
+    Count(String, (usize, usize)),
     Infty,
     Bin(char, Box<RawRate>, Box<RawRate>),
+}
+
+impl RawRate {
+    fn has_count(&self) -> bool {
+        match self {
+            RawRate::Count(..) => true,
+            RawRate::Num(_) | RawRate::Name(..) | RawRate::Infty => false,
+            RawRate::Bin(_, a, b) => a.has_count() || b.has_count(),
+        }
+    }
 }
 
 /// Process expression before names are classified and resolved.
@@ -440,6 +455,14 @@ impl Parser {
     }
 
     fn rate_factor(&mut self) -> Result<RawRate, ParseError> {
+        // Species count `#{name}`: whitespace may separate `#` and the name,
+        // since `pepa!` stringifies `#I` as `# I`.
+        if *self.peek() == Tok::Sym("#") {
+            let at = self.here();
+            self.bump();
+            let name = self.ident()?;
+            return Ok(RawRate::Count(name, at));
+        }
         let at = self.here();
         match self.bump() {
             Tok::Num(v) => Ok(RawRate::Num(v)),
@@ -476,20 +499,17 @@ fn resolve(raw: RawFile) -> Result<PepaModel<Sym>, PepaError> {
     }
     for (i, (_, rate)) in raw.params.iter().enumerate() {
         let expr = r.rate(rate)?;
-        if matches!(expr, RateExpr::Passive(_)) {
-            return Err(PepaError::InvalidRate {
-                component: params[i].0.clone(),
-                action: "parameter".into(),
-            });
-        }
+        // Parameters are constants: no passive rates, no species counts.
         // Parameters may refer to earlier parameters.
-        let value =
-            expr.eval(&params)
-                .map(|r| r.value())
-                .ok_or_else(|| PepaError::InvalidRate {
+        let value = match expr.eval(&params) {
+            Some(crate::pepa::Rate::Active(v)) => v,
+            _ => {
+                return Err(PepaError::InvalidRate {
                     component: params[i].0.clone(),
                     action: "parameter".into(),
-                })?;
+                });
+            }
+        };
         params[i].1 = value;
     }
 
@@ -564,7 +584,8 @@ impl Resolver {
     }
 
     fn rate(&self, r: &RawRate) -> Result<RateExpr, PepaError> {
-        // `infty` may only appear as `infty`, `w * infty` or `infty * w`.
+        // `infty` may only appear as `infty`, `w * infty` or `infty * w`
+        // (weights must be static: `active_rate` rejects counts there).
         match r {
             RawRate::Infty => return Ok(RateExpr::Passive(Box::new(RateExpr::Lit(1.0)))),
             RawRate::Bin('*', a, b) if matches!(**b, RawRate::Infty) => {
@@ -575,12 +596,57 @@ impl Resolver {
             }
             _ => {}
         }
+        if r.has_count() {
+            return self.functional_rate(r);
+        }
         self.active_rate(r)
+    }
+
+    /// Resolves a rate expression containing species counts (`#Name`).
+    fn functional_rate(&self, r: &RawRate) -> Result<RateExpr, PepaError> {
+        Ok(match r {
+            RawRate::Num(v) => RateExpr::Lit(*v),
+            RawRate::Count(n, _) => RateExpr::Count(n.clone()),
+            RawRate::Name(n, (line, column)) => {
+                RateExpr::Param(*self.params.get(n).ok_or_else(|| {
+                    PepaError::Parse(err_at(
+                        *line,
+                        *column,
+                        &format!("unknown rate parameter `{n}`"),
+                    ))
+                })?)
+            }
+            RawRate::Infty => {
+                return Err(PepaError::InvalidRate {
+                    component: "expression".into(),
+                    action: "infty".into(),
+                });
+            }
+            RawRate::Bin(op, a, b) => {
+                let (a, b) = (
+                    Box::new(self.functional_rate(a)?),
+                    Box::new(self.functional_rate(b)?),
+                );
+                match op {
+                    '+' => RateExpr::Add(a, b),
+                    '-' => RateExpr::Sub(a, b),
+                    '*' => RateExpr::Mul(a, b),
+                    _ => RateExpr::Div(a, b),
+                }
+            }
+        })
     }
 
     fn active_rate(&self, r: &RawRate) -> Result<RateExpr, PepaError> {
         Ok(match r {
             RawRate::Num(v) => RateExpr::Lit(*v),
+            RawRate::Count(n, (line, column)) => {
+                return Err(PepaError::Parse(err_at(
+                    *line,
+                    *column,
+                    &format!("species count `#{n}` is only allowed in prefix rates, not here"),
+                )));
+            }
             RawRate::Name(n, (line, column)) => {
                 RateExpr::Param(*self.params.get(n).ok_or_else(|| {
                     PepaError::Parse(err_at(

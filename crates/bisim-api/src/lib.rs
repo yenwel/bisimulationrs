@@ -11,9 +11,12 @@
 //! into model time.
 
 use bisim_algebra::pepa::{Act, DeriveOptions, DerivedModel, PepaError, Rate, Sym, parse_pepa};
+use bisim_algebra::prism::{
+    ModelKind, PrismDerived, PrismError, PrismModel, Query, Until, parse_prism, parse_query,
+};
 use bisim_core::{Formula, Lts, Partition, Real, Semiring, StateId, Verdict, Wlts};
-use bisim_refine::{compare as compare_lts, distinguishing_formula, refine};
-use bisim_stochastic::Ctmc;
+use bisim_refine::{compare as compare_lts, distinguishing_formula, refine, refine_fast};
+use bisim_stochastic::{Ctmc, bounded_steps, dtmc_matrix, unbounded_reach};
 use serde::Serialize;
 
 mod engine;
@@ -49,6 +52,23 @@ pub enum Severity {
 fn diagnostic(e: &PepaError) -> Diagnostic {
     match e {
         PepaError::Parse(p) => Diagnostic {
+            severity: Severity::Error,
+            line: p.line,
+            column: p.column,
+            message: p.message.clone(),
+        },
+        other => Diagnostic {
+            severity: Severity::Error,
+            line: 0,
+            column: 0,
+            message: other.to_string(),
+        },
+    }
+}
+
+fn prism_diagnostic(e: &PrismError) -> Diagnostic {
+    match e {
+        PrismError::Parse(p) => Diagnostic {
             severity: Severity::Error,
             line: p.line,
             column: p.column,
@@ -135,9 +155,12 @@ pub struct ComponentTransitionView {
     pub source: usize,
     pub target: usize,
     pub action: String,
-    /// Rate in s⁻¹, or the weight of a passive rate.
+    /// Rate in s⁻¹, or the weight of a passive rate (`0` for functional rates).
     pub rate: f64,
     pub passive: bool,
+    /// The functional rate expression (e.g. `0.3 * #I`) when the rate
+    /// depends on species counts; `None` for constant and passive rates.
+    pub functional: Option<String>,
 }
 
 /// Everything the visualiser shows for one model.
@@ -169,7 +192,7 @@ fn derive(source: &str, options: Options) -> Result<Derived, PepaError> {
     let derived = model.derive_with(DeriveOptions {
         max_states: options.max_states,
     })?;
-    let partition = refine(&derived.lts, None).partition().clone();
+    let partition = refine_fast(&derived.lts, None);
     Ok(Derived {
         model: derived,
         partition,
@@ -225,8 +248,13 @@ pub fn analyse(source: &str, options: Options) -> Result<Analysis, Vec<Diagnosti
                     action: t.action,
                     rate: match t.rate {
                         Rate::Active(r) | Rate::Passive(r) => r,
+                        Rate::Functional(_) => 0.0,
                     },
                     passive: t.rate.is_passive(),
+                    functional: match &t.rate {
+                        Rate::Functional(f) => Some(f.to_string()),
+                        _ => None,
+                    },
                 })
                 .collect(),
         })
@@ -288,6 +316,403 @@ pub fn analyse(source: &str, options: Options) -> Result<Analysis, Vec<Diagnosti
         lumped,
         steady_state,
         note: None,
+    })
+}
+
+/// Checks a PRISM model without deriving it: syntax and resolution
+/// errors. An empty list means the model is fine.
+pub fn check_prism(source: &str) -> Vec<Diagnostic> {
+    match parse_prism(source) {
+        Ok(_) => Vec::new(),
+        Err(e) => vec![prism_diagnostic(&e)],
+    }
+}
+
+/// Checks a JANI model without deriving it. An empty list means it is valid.
+pub fn check_jani(source: &str) -> Vec<Diagnostic> {
+    match bisim_algebra::jani::parse_jani(source) {
+        Ok(_) => Vec::new(),
+        Err(e) => vec![prism_diagnostic(&e)],
+    }
+}
+
+/// Everything the visualiser shows for one PRISM model.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PrismAnalysis {
+    /// Variable names in state-vector order.
+    pub vars: Vec<String>,
+    /// The full derived state space.
+    pub full: GraphView,
+    /// The quotient by Markovian/probabilistic bisimulation.
+    pub lumped: GraphView,
+    /// Steady-state probability of every full state (by power iteration).
+    pub steady_state: Vec<f64>,
+    /// Expected rewards per block: state rewards per time unit (per step
+    /// for DTMCs) and transition rewards per time unit, in steady state.
+    pub rewards: Vec<RewardResult>,
+    /// Set when the full state space is too large to list.
+    pub note: Option<String>,
+}
+
+/// Expected rewards of one `rewards` block in steady state.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RewardResult {
+    pub block: String,
+    /// Expected state reward: Σ π(s)·value(s) over matching states.
+    pub state: f64,
+    /// Expected transition reward: Σ π(s)·rate(s→)·value(s) over
+    /// matching transitions (probabilities for DTMCs).
+    pub transition: f64,
+}
+
+/// Parses, derives and lumps a PRISM (`dtmc`/`ctmc` subset) model, and
+/// computes its steady state. Lumpability and analysis work exactly as
+/// for PEPA models, since both derive the same kind of labelled system.
+/// The steady state is valid for DTMC and CTMC alike (uniformisation
+/// preserves the stationary distribution); per-time transient analysis
+/// for DTMCs is not offered (their clock is steps, not seconds).
+pub fn analyse_prism(source: &str, options: Options) -> Result<PrismAnalysis, Vec<Diagnostic>> {
+    let model = parse_prism(source).map_err(|e| vec![prism_diagnostic(&e)])?;
+    analyse_prism_model(&model, options).map_err(|e| vec![prism_diagnostic(&e)])
+}
+
+/// Analyses a JANI model (see `bisim_algebra::jani` for the subset) exactly
+/// like [`analyse_prism`]: the interchange format of Storm and Modest.
+pub fn analyse_jani(source: &str, options: Options) -> Result<PrismAnalysis, Vec<Diagnostic>> {
+    let model = bisim_algebra::jani::parse_jani(source).map_err(|e| vec![prism_diagnostic(&e)])?;
+    analyse_prism_model(&model, options).map_err(|e| vec![prism_diagnostic(&e)])
+}
+
+fn analyse_prism_model(model: &PrismModel, options: Options) -> Result<PrismAnalysis, PrismError> {
+    let vars: Vec<String> = model.vars.iter().map(|v| v.name.clone()).collect();
+    let empty = || GraphView {
+        states: Vec::new(),
+        transitions: Vec::new(),
+    };
+    let derived = match model.derive_with(DeriveOptions {
+        max_states: options.max_states,
+    }) {
+        Ok(d) => d,
+        Err(PrismError::StateSpaceTooLarge { limit }) => {
+            return Ok(PrismAnalysis {
+                vars,
+                full: empty(),
+                lumped: empty(),
+                steady_state: Vec::new(),
+                rewards: Vec::new(),
+                note: Some(format!(
+                    "The full state space has more than {limit} states, too many to list."
+                )),
+            });
+        }
+        Err(e) => return Err(e),
+    };
+    let lts = &derived.lts;
+    let partition = refine_fast(lts, None);
+    let full = graph(
+        lts,
+        |s| derived.state_name(s),
+        |s| partition.block_of(s) as usize,
+        |_| 1,
+    );
+    let blocks = partition.blocks();
+    let quotient = lts.quotient(&partition);
+    let lumped = graph(
+        &quotient,
+        |b| {
+            let members = &blocks[b.index()];
+            let rep = derived.state_name(members[0]);
+            match members.len() {
+                1 => rep,
+                n => format!("{rep} (+{} equivalent)", n - 1),
+            }
+        },
+        |b| b.index(),
+        |b| blocks[b.index()].len(),
+    );
+    let steady_state = Ctmc::from_wlts(lts).steady_state(1e-12, 200_000);
+    let rewards = eval_rewards(model, &derived, &steady_state)?;
+    Ok(PrismAnalysis {
+        vars,
+        full,
+        lumped,
+        steady_state,
+        rewards,
+        note: None,
+    })
+}
+
+/// Expected rewards of every `rewards` block in steady state.
+fn eval_rewards(
+    model: &PrismModel,
+    derived: &PrismDerived,
+    steady: &[f64],
+) -> Result<Vec<RewardResult>, PrismError> {
+    use bisim_algebra::prism::RewardItem;
+
+    model
+        .rewards
+        .iter()
+        .map(|b| {
+            let (mut state, mut transition) = (0.0, 0.0);
+            for (i, valuation) in derived.states.iter().enumerate() {
+                let pi = steady[i];
+                if pi == 0.0 {
+                    continue;
+                }
+                for item in &b.items {
+                    match item {
+                        RewardItem::State { guard, value } => {
+                            if model.eval_pred(guard, valuation)? {
+                                let v = model.eval_num(value, valuation)?;
+                                if !v.is_finite() {
+                                    return Err(PrismError::Arithmetic(format!(
+                                        "state reward of `{}` is not finite",
+                                        b.name
+                                    )));
+                                }
+                                state += pi * v;
+                            }
+                        }
+                        RewardItem::Trans {
+                            label,
+                            guard,
+                            value,
+                        } => {
+                            if !model.eval_pred(guard, valuation)? {
+                                continue;
+                            }
+                            let v = model.eval_num(value, valuation)?;
+                            if !v.is_finite() {
+                                return Err(PrismError::Arithmetic(format!(
+                                    "transition reward of `{}` is not finite",
+                                    b.name
+                                )));
+                            }
+                            for e in derived.lts.successors(StateId(i as u32)) {
+                                if matches!(derived.lts.label(e.label), Act::Act(l) if l == label) {
+                                    transition += pi * e.weight.value() * v;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(RewardResult {
+                block: b.name.clone(),
+                state,
+                transition,
+            })
+        })
+        .collect()
+}
+
+/// The answer to one CSL/PCTL-style query (see [`query_prism`]).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct QueryResult {
+    /// Probability from the initial state (`P`) or in the long run (`S`).
+    pub probability: f64,
+    /// Whether the threshold holds (`None` for quantitative `=?` queries).
+    pub holds: Option<bool>,
+    pub explanation: String,
+}
+
+/// Answers a query (`P=? [F pred]`, `P>=p [F<=t pred]`, `S=? [pred]`, …)
+/// on a PRISM model, from its initial state.
+///
+/// - `F` on DTMCs is solved by value iteration (unbounded) or exact
+///   step-bounded iteration (`F<=k`, integral `k`); on CTMCs, unbounded
+///   `F` runs on the embedded jump chain and `F<=t` by uniformisation
+///   with absorbing targets.
+/// - `S` sums the steady state over `pred` (valid for DTMC and CTMC).
+pub fn query_prism(
+    source: &str,
+    query: &str,
+    options: Options,
+) -> Result<QueryResult, Vec<Diagnostic>> {
+    let model = parse_prism(source).map_err(|e| vec![prism_diagnostic(&e)])?;
+    query_model(&model, query, options)
+}
+
+/// Answers a query on a JANI model (see [`query_prism`]).
+pub fn query_jani(
+    source: &str,
+    query: &str,
+    options: Options,
+) -> Result<QueryResult, Vec<Diagnostic>> {
+    let model = bisim_algebra::jani::parse_jani(source).map_err(|e| vec![prism_diagnostic(&e)])?;
+    query_model(&model, query, options)
+}
+
+fn query_model(
+    model: &PrismModel,
+    query: &str,
+    options: Options,
+) -> Result<QueryResult, Vec<Diagnostic>> {
+    let query = parse_query(model, query).map_err(|e| vec![prism_diagnostic(&e)])?;
+    let derived = model
+        .derive_with(DeriveOptions {
+            max_states: options.max_states,
+        })
+        .map_err(|e| vec![prism_diagnostic(&e)])?;
+    let lts = &derived.lts;
+    let targets: Vec<bool> = lts
+        .states()
+        .map(|s| {
+            model
+                .eval_pred(
+                    match &query {
+                        Query::Prob(q) => &q.pred,
+                        Query::Steady(q) => &q.pred,
+                    },
+                    &derived.states[s.index()],
+                )
+                .map_err(|e| vec![prism_diagnostic(&e)])
+        })
+        .collect::<Result<_, _>>()?;
+    let init = lts.initial().expect("derived models have an initial state");
+    let ctmc = Ctmc::from_wlts(lts);
+    let probability = match &query {
+        Query::Steady(_) => ctmc
+            .steady_state(1e-12, 200_000)
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| if targets[i] { p } else { 0.0 })
+            .sum(),
+        Query::Prob(q) => match (&model.kind, &q.until) {
+            (ModelKind::Dtmc, Until::Eventually) => {
+                let p = dtmc_matrix(lts).map_err(|e| {
+                    vec![Diagnostic {
+                        severity: Severity::Error,
+                        line: 0,
+                        column: 0,
+                        message: e.to_string(),
+                    }]
+                })?;
+                unbounded_reach(&p, &targets, 1e-12, 1_000_000)[init.index()]
+            }
+            (ModelKind::Dtmc, Until::Bounded(k)) => {
+                if k.fract() != 0.0 || *k < 0.0 {
+                    return Err(vec![Diagnostic {
+                        severity: Severity::Error,
+                        line: 0,
+                        column: 0,
+                        message: format!("DTMC step bounds must be whole steps, got {k}"),
+                    }]);
+                }
+                let p = dtmc_matrix(lts).map_err(|e| {
+                    vec![Diagnostic {
+                        severity: Severity::Error,
+                        line: 0,
+                        column: 0,
+                        message: e.to_string(),
+                    }]
+                })?;
+                bounded_steps(&p, &targets, *k as u64)[init.index()]
+            }
+            (_, Until::Eventually) => {
+                let p = ctmc.embedded();
+                unbounded_reach(&p, &targets, 1e-12, 1_000_000)[init.index()]
+            }
+            (_, Until::Bounded(t)) => {
+                if *t < 0.0 {
+                    return Err(vec![Diagnostic {
+                        severity: Severity::Error,
+                        line: 0,
+                        column: 0,
+                        message: format!("time bounds must be non-negative, got {t}"),
+                    }]);
+                }
+                ctmc.reach_bounded(&ctmc.initial_distribution(), &targets, *t, 1e-10)
+            }
+        },
+    };
+    let (threshold, what) = match &query {
+        Query::Prob(q) => (q.threshold, "reachability probability"),
+        Query::Steady(q) => (q.threshold, "steady-state probability"),
+    };
+    let holds = threshold.map(|(cmp, bound)| cmp.holds(probability, bound));
+    let explanation = match threshold {
+        None => format!("The {what} from the initial state is {probability:.6}."),
+        Some((cmp, bound)) => {
+            let verdict = if holds.expect("threshold") {
+                "holds"
+            } else {
+                "fails"
+            };
+            format!(
+                "The {what} from the initial state is {probability:.6}, {} {} {bound} {verdict}.",
+                match &query {
+                    Query::Prob(_) => "P",
+                    Query::Steady(_) => "S",
+                },
+                cmp.symbol()
+            )
+        }
+    };
+    Ok(QueryResult {
+        probability,
+        holds,
+        explanation,
+    })
+}
+
+/// Mean-field fluid approximation over time, by RK4 integration of the
+/// SOS drift (see `DerivedModel::fluid_drift`).
+///
+/// Returns the same [`Transient`] shape as [`transient`], but computed
+/// from expected-count ODEs instead of the Markov chain: cheap for large
+/// populations, where enumeration is infeasible. Only array populations
+/// (`P[n]`) are supported; single components are an error, as are
+/// non-positive or non-finite `dt` values.
+///
+/// `options` is accepted for symmetry with the other analyses; the state
+/// space is never enumerated, so its limits do not apply here.
+pub fn fluid(
+    source: &str,
+    times: &[f64],
+    dt: f64,
+    _options: Options,
+) -> Result<Transient, Vec<Diagnostic>> {
+    if let Some(t) = times.iter().find(|t| !t.is_finite() || **t < 0.0) {
+        return Err(vec![Diagnostic {
+            severity: Severity::Error,
+            line: 0,
+            column: 0,
+            message: format!("times must be non-negative, got {t}"),
+        }]);
+    }
+    if !dt.is_finite() || dt <= 0.0 {
+        return Err(vec![Diagnostic {
+            severity: Severity::Error,
+            line: 0,
+            column: 0,
+            message: format!("dt must be positive and finite, got {dt}"),
+        }]);
+    }
+    let model = parse_pepa(source).map_err(|e| vec![diagnostic(&e)])?;
+    let fluid = model.fluid_model().map_err(|e| vec![diagnostic(&e)])?;
+    let slots = fluid.fluid_slots();
+    let snaps =
+        bisim_stochastic::integrate(|x| fluid.fluid_drift(x), &fluid.initial_counts(), times, dt)
+            .map_err(|e| vec![diagnostic(&e)])?;
+    let mut by_series: Vec<Vec<f64>> = vec![Vec::new(); slots.len()];
+    for snap in &snaps {
+        for (values, x) in by_series.iter_mut().zip(snap) {
+            values.push(*x);
+        }
+    }
+    Ok(Transient {
+        times: times.to_vec(),
+        occupancy: slots
+            .into_iter()
+            .zip(by_series)
+            .map(|((component, derivative), values)| Series {
+                component,
+                derivative,
+                values,
+            })
+            .collect(),
     })
 }
 

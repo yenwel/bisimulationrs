@@ -1,7 +1,9 @@
 use std::fmt;
 
-use bisim_algebra::pepa::{Act, PepaError, PepaModel, act, parse_pepa, passive, stop};
-use bisim_core::{StateId, Verdict};
+use bisim_algebra::pepa::{
+    Act, PepaError, PepaModel, RateExpr, act, count, parse_pepa, passive, stop,
+};
+use bisim_core::{Real, StateId, Verdict, Wlts};
 use bisim_refine::{bisimilar, minimise};
 
 const LIFECYCLE: &str = "
@@ -224,4 +226,149 @@ fn typed_actions() {
     });
     assert_eq!(typed, mapped);
     assert_eq!(typed.derive().unwrap().num_states(), 3);
+}
+
+/// Total rate of `action`-transitions out of `s`.
+fn total_rate(lts: &Wlts<Act<String>, Real>, s: StateId, action: &str) -> f64 {
+    lts.successors(s)
+        .iter()
+        .filter(|e| matches!(lts.label(e.label), Act::Act(a) if a == action))
+        .map(|e| e.weight.value())
+        .sum()
+}
+
+const SIR_FUN: &str = "
+    beta = 0.3; gamma = 0.1;
+    S = (infect, beta * #I).I;
+    I = (recover, gamma).R;
+    R = 0;
+    S[9] || I[1]
+";
+
+#[test]
+fn functional_rates_give_mass_action() {
+    let m = parse_pepa(SIR_FUN).unwrap();
+    let d = m.derive().unwrap();
+    // Mass action holds in *every* reachable state: each susceptible is
+    // infected at beta per infected, each infected recovers at gamma.
+    for s in d.lts.states() {
+        let (mut n_s, mut n_i) = (0u32, 0u32);
+        for leaf in 0..d.leaves().len() {
+            for (deriv, n) in d.local_counts(s, leaf) {
+                match deriv.as_str() {
+                    "S" => n_s += n,
+                    "I" => n_i += n,
+                    _ => {}
+                }
+            }
+        }
+        let infect = total_rate(&d.lts, s, "infect");
+        let recover = total_rate(&d.lts, s, "recover");
+        assert!(
+            (infect - 0.3 * n_s as f64 * n_i as f64).abs() < 1e-9,
+            "state {}: infect {infect} != 0.3*{n_s}*{n_i}",
+            d.state_name(s)
+        );
+        assert!(
+            (recover - 0.1 * n_i as f64).abs() < 1e-9,
+            "state {}: recover {recover} != 0.1*{n_i}",
+            d.state_name(s)
+        );
+    }
+    // Printing round-trips, keeping the `#I` syntax.
+    let printed = m.to_string();
+    assert!(printed.contains("#I"), "printed:\n{printed}");
+    assert_eq!(parse_pepa(&printed).unwrap(), m);
+}
+
+#[test]
+fn builder_and_macro_support_functional_rates() {
+    let mut m = PepaModel::builder();
+    let beta = m.param("beta", 0.3);
+    let (s, i) = (m.seq("S"), m.seq("I"));
+    m.define(
+        s,
+        act("infect".to_string(), RateExpr::from(beta) * count("I")).then(i),
+    );
+    m.define(i, stop());
+    m.system(s.times(2).par(i));
+    let built = m.build().unwrap();
+    let derived = built.derive().unwrap();
+    // 2 susceptibles, 1 infected: pressure 2 * 0.3 * 1.
+    let total = total_rate(
+        &derived.lts,
+        derived.lts.initial().expect("initial"),
+        "infect",
+    );
+    assert!((total - 0.6).abs() < 1e-12, "got {total}");
+}
+
+#[test]
+fn functional_rate_errors() {
+    // Unknown species, with the available derivatives listed.
+    let e = parse_pepa("S = (a, #Nope).S; S[2]")
+        .unwrap()
+        .derive()
+        .unwrap_err();
+    assert!(matches!(e, PepaError::UndefinedSpecies { .. }), "got {e:?}");
+    assert!(e.to_string().contains("#Nope"));
+    // Counts are not allowed in parameters.
+    assert!(matches!(
+        parse_pepa("r = #S; S = (a, r).S; S[1]").unwrap_err(),
+        PepaError::InvalidRate { .. }
+    ));
+    // Counts are not allowed under `infty`.
+    let e = parse_pepa("S = (a, #I * infty).S; I = (a, 1).I; S <a> I").unwrap_err();
+    assert!(
+        e.to_string().contains("only allowed in prefix rates"),
+        "got {e}"
+    );
+    // A functional rate that goes negative is a derivation error.
+    assert!(matches!(
+        parse_pepa("S = (a, 1 - #S).S; S[2]")
+            .unwrap()
+            .derive()
+            .unwrap_err(),
+        PepaError::InvalidFunctionalRate { .. }
+    ));
+}
+
+#[test]
+fn fluid_drift_matches_hand_computed_flows() {
+    // S =(a,2)=> T: dS/dt = -2S, dT/dt = 2S.
+    let m = parse_pepa("S = (a, 2).T; T = 0; S[3]").unwrap();
+    let f = m.fluid_model().unwrap();
+    assert_eq!(
+        f.fluid_slots(),
+        vec![
+            ("S[3]".to_owned(), "S".to_owned()),
+            ("S[3]".to_owned(), "T".to_owned())
+        ]
+    );
+    assert_eq!(f.initial_counts(), vec![3.0, 0.0]);
+    assert_eq!(f.fluid_drift(&[3.0, 0.0]).unwrap(), vec![-6.0, 6.0]);
+    assert_eq!(f.fluid_drift(&[1.5, 1.5]).unwrap(), vec![-3.0, 3.0]);
+    // The enumerated model agrees on structure.
+    assert_eq!(m.derive().unwrap().num_states(), 4);
+
+    // Functional SIR: dS = -beta*S*I, dI = beta*S*I - gamma*I.
+    // Slots are (S,I,R | I,R); initial x = [9,0,0,1,0].
+    let sir = parse_pepa(SIR_FUN).unwrap().fluid_model().unwrap();
+    let dx = sir.fluid_drift(&[9.0, 0.0, 0.0, 1.0, 0.0]).unwrap();
+    assert_eq!(dx.len(), 5);
+    assert!((dx[0] + 2.7).abs() < 1e-12, "{dx:?}");
+    assert!((dx[1] - 2.7).abs() < 1e-12, "{dx:?}");
+    assert!((dx[3] + 0.1).abs() < 1e-12, "{dx:?}");
+    assert!((dx[4] - 0.1).abs() < 1e-12, "{dx:?}");
+    // Conservation per array: slots (0,1,2) sum to 9, (3,4) to 1.
+    assert!((dx[0] + dx[1] + dx[2]).abs() < 1e-12);
+    assert!((dx[3] + dx[4]).abs() < 1e-12);
+
+    // Single components have no mean field.
+    let e = parse_pepa("S = (a, 1).T; T = 0; S")
+        .unwrap()
+        .fluid_model()
+        .unwrap()
+        .fluid_drift(&[1.0]);
+    assert!(matches!(e, Err(PepaError::FluidRequiresArrays { .. })));
 }

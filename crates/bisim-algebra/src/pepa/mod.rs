@@ -8,7 +8,10 @@
 //! ```
 //!
 //! Rates are in s⁻¹; `infty` (⊤) marks a passive rate whose value is set by
-//! the cooperation partner. Three front ends produce the same [`PepaModel`]:
+//! the cooperation partner. `#{derivative}` is a species count for
+//! Bio-PEPA-style functional rates (e.g. mass action `beta * #I`),
+//! evaluated per global state during derivation. Three front ends produce
+//! the same [`PepaModel`]:
 //!
 //! - [`PepaModel::builder`]: a typed builder (actions can be a Rust enum);
 //! - [`parse_pepa`]: the textual syntax of the PEPA Eclipse plug-in;
@@ -27,8 +30,10 @@ mod rate;
 mod validate;
 
 pub use ast::{Action, ActionSet, ModelTerm, ParamId, PepaModel, RateExpr, Seq, SeqId, Sym};
-pub use builder::{PepaBuilder, PrefixStart, act, passive, passive_weighted, stop};
-pub use derive::{Act, DeriveOptions, DerivedModel, LeafInfo, LocalGraph, LocalTransition};
+pub use builder::{PepaBuilder, PrefixStart, act, count, passive, passive_weighted, stop};
+pub use derive::{
+    Act, DeriveOptions, DerivedModel, FluidModel, LeafInfo, LocalGraph, LocalTransition,
+};
 pub use parse::{ParseError, parse_pepa};
-pub use rate::Rate;
+pub use rate::{FunExpr, Rate};
 pub use validate::PepaError;

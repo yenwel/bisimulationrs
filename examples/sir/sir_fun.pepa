@@ -1,0 +1,16 @@
+// SIR epidemic for 10 people (9 susceptible, 1 infected) with a
+// Bio-PEPA-style functional rate: each susceptible is infected at
+// beta per infected individual, i.e. true mass action (#S * beta * #I).
+// No cooperation is needed; the global counts couple the copies.
+// Compare sir.pepa (classic cooperation, scales with #S only) and
+// sir.prism (same functional rate as a guarded command).
+// Rates are per day.
+
+beta  = 0.3;   // pairwise infection rate per day
+gamma = 0.1;   // recovery rate per infected per day
+
+S = (infect, beta * #I).I;
+I = (recover, gamma).R;
+R = 0;
+
+S[9] || I[1]

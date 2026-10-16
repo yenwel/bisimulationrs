@@ -94,8 +94,31 @@ def check(source: str) -> list[Diagnostic]:
     return _diagnostics(_call({"op": "check", "source": source})["ok"])
 
 
+def check_prism(source: str) -> list[Diagnostic]:
+    """Checks PRISM source text without analysing it. An empty list means it is valid."""
+    return _diagnostics(_call({"op": "check_prism", "source": source})["ok"])
+
+
+def check_jani(source: str) -> list[Diagnostic]:
+    """Checks JANI source text without analysing it. An empty list means it is valid."""
+    return _diagnostics(_call({"op": "check_jani", "source": source})["ok"])
+
+
 def _source(model: Union["Model", str]) -> str:
     return model.source if isinstance(model, Model) else model
+
+
+def _occupancy_frame(occupancy: list[dict], times: list[float], wide: bool) -> pd.DataFrame:
+    rows = [
+        {"time": t, "component": s["component"], "state": s["derivative"], "expected": v}
+        for s in occupancy
+        for t, v in zip(times, s["values"])
+    ]
+    long = pd.DataFrame(rows, columns=["time", "component", "state", "expected"])
+    if not wide:
+        return long.sort_values(["time", "component", "state"], kind="stable").reset_index(drop=True)
+    long["column"] = long["component"] + ": " + long["state"]
+    return long.pivot(index="time", columns="column", values="expected").rename_axis(columns=None).reset_index()
 
 
 class Model:
@@ -215,16 +238,30 @@ class Model:
         )
         if "error" in response:
             raise ModelError(_diagnostics(response["error"]))
-        rows = [
-            {"time": t, "component": s["component"], "state": s["derivative"], "expected": v}
-            for s in response["ok"]["occupancy"]
-            for t, v in zip(times, s["values"])
-        ]
-        long = pd.DataFrame(rows, columns=["time", "component", "state", "expected"])
-        if not wide:
-            return long.sort_values(["time", "component", "state"], kind="stable").reset_index(drop=True)
-        long["column"] = long["component"] + ": " + long["state"]
-        return long.pivot(index="time", columns="column", values="expected").rename_axis(columns=None).reset_index()
+        return _occupancy_frame(response["ok"]["occupancy"], times, wide)
+
+    def fluid_over_time(
+        self, times: Iterable[float], dt: float = 0.01, wide: bool = False
+    ) -> pd.DataFrame:
+        """Mean-field fluid approximation of :meth:`over_time` (same table shape).
+
+        Integrates the SOS drift with RK4 instead of solving the Markov
+        chain, so large array populations stay cheap. Only array
+        populations (``P[n]``) are supported.
+        """
+        times = [float(t) for t in times]
+        response = _call(
+            {
+                "op": "fluid",
+                "source": self.source,
+                "times": times,
+                "dt": float(dt),
+                "max_states": self.max_states,
+            }
+        )
+        if "error" in response:
+            raise ModelError(_diagnostics(response["error"]))
+        return _occupancy_frame(response["ok"]["occupancy"], times, wide)
 
     def plot_over_time(self, horizon: float = 100.0, points: int = 101, component: Optional[str] = None, ax=None):
         """Line chart of :meth:`over_time` (needs matplotlib). Returns the axes."""
@@ -375,6 +412,115 @@ class Model:
         axes[-1, 0].set_xlabel(f"{unit}s since {report.start}")
         fig.tight_layout()
         return fig
+
+
+class PrismModel:
+    """A PRISM model (``dtmc``/``ctmc`` guarded commands, see ``examples/sir/sir.prism``).
+
+    Create it from source text, or with :meth:`PrismModel.from_file`.
+    Problems raise :class:`ModelError`.
+
+    ``max_states`` limits the state space so a large model fails quickly
+    instead of using all memory.
+    """
+
+    def __init__(self, source: str, *, max_states: int = 200_000):
+        self.source = source
+        self.max_states = max_states
+        problems = [d for d in check_prism(source) if d.severity == "error"]
+        if problems:
+            raise ModelError(problems)
+        self._analysis: Optional[dict] = None
+        self._op = "analyse_prism"
+
+    @classmethod
+    def from_jani(cls, source: str, **kwargs) -> "PrismModel":
+        """Creates a model from JANI text (the interchange format of Storm and Modest)."""
+        model = cls.__new__(cls)
+        model.source = source
+        model.max_states = kwargs.get("max_states", 200_000)
+        problems = [d for d in check_jani(source) if d.severity == "error"]
+        if problems:
+            raise ModelError(problems)
+        model._analysis = None
+        model._op = "analyse_jani"
+        return model
+
+    @classmethod
+    def from_file(cls, path: Union[str, PathLike], **kwargs) -> "PrismModel":
+        """Reads a ``.prism`` file."""
+        with open(path, encoding="utf-8") as f:
+            return cls(f.read(), **kwargs)
+
+    def __repr__(self) -> str:
+        s = self.summary()
+        size = "state space too large to list" if s["states"] is None else f"{s['states']} states, {s['lumped_states']} after lumping"
+        return f"<PRISM model: {size}; variables {', '.join(s['variables'])}>"
+
+    def _analyse(self) -> dict:
+        if self._analysis is None:
+            response = _call({"op": self._op, "source": self.source, "max_states": self.max_states})
+            if "error" in response:
+                raise ModelError(_diagnostics(response["error"]))
+            self._analysis = response["ok"]
+        return self._analysis
+
+    def summary(self) -> dict:
+        """Size of the state space before and after lumping, and the variables."""
+        a = self._analyse()
+        listed = a["note"] is None
+        return {
+            "states": len(a["full"]["states"]) if listed else None,
+            "transitions": len(a["full"]["transitions"]) if listed else None,
+            "lumped_states": len(a["lumped"]["states"]) if listed else None,
+            "variables": list(a["vars"]),
+            "note": a["note"],
+        }
+
+    def states(self, lumped: bool = False) -> pd.DataFrame:
+        """One row per valuation, with its long-run (steady-state) probability."""
+        a = self._analyse()
+        full = pd.DataFrame(a["full"]["states"])
+        full["steady_state"] = a["steady_state"]
+        if not lumped:
+            return full.rename(columns={"id": "state", "block": "lumped_state"}).drop(columns="size")[
+                ["state", "name", "initial", "lumped_state", "steady_state"]
+            ]
+        blocks = pd.DataFrame(a["lumped"]["states"]).rename(
+            columns={"id": "state", "size": "merged_states"}
+        )
+        blocks["steady_state"] = full.groupby("block")["steady_state"].sum().reindex(blocks["state"]).to_numpy()
+        return blocks[["state", "name", "initial", "merged_states", "steady_state"]]
+
+    def transitions(self, lumped: bool = False) -> pd.DataFrame:
+        """One row per transition: source and target state, action, and rate/probability."""
+        graph = self._analyse()["lumped" if lumped else "full"]
+        return pd.DataFrame(graph["transitions"], columns=["source", "target", "action", "rate"])
+
+    def query(self, query: str) -> dict:
+        """Answers a CSL/PCTL-style query (``P=? [F s=1]``, ``S=? [s=0]``, …).
+
+        Returns ``probability``, ``holds`` (for threshold queries) and an
+        ``explanation``. Works for PRISM and JANI models alike.
+        """
+        op = "query_jani" if self._op == "analyse_jani" else "query"
+        response = _call(
+            {
+                "op": op,
+                "source": self.source,
+                "query": query,
+                "max_states": self.max_states,
+            }
+        )
+        if "error" in response:
+            raise ModelError(_diagnostics(response["error"]))
+        return response["ok"]
+
+    def rewards(self) -> pd.DataFrame:
+        """One row per ``rewards`` block: expected state and transition rewards in steady state."""
+        return pd.DataFrame(
+            self._analyse()["rewards"], columns=["block", "state", "transition"]
+        )
 
 
 def _fmt_date(value) -> str:

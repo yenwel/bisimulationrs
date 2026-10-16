@@ -48,6 +48,8 @@ pub struct DerivedModel<A> {
     states: Vec<Vec<u32>>,
     names: Vec<String>,
     layout: Layout,
+    local: Local<A>,
+    shape: Shape<A>,
 }
 
 impl<A: Action> DerivedModel<A> {
@@ -72,6 +74,32 @@ impl<A: Action> DerivedModel<A> {
         &self.states[s.index()]
     }
 
+    /// Initial counts as floats, in slot order (see [`Self::fluid_slots`]).
+    pub fn initial_counts(&self) -> Vec<f64> {
+        self.states[0].iter().map(|&c| c as f64).collect()
+    }
+
+    /// `(leaf name, derivative name)` per slot, in slot order. Single
+    /// components contribute one slot each (marked as such); see
+    /// [`Self::fluid_drift`], which only supports arrays.
+    pub fn fluid_slots(&self) -> Vec<(String, String)> {
+        slots_of(&self.layout, &self.names)
+    }
+
+    /// Mean-field drift `dx/dt` at continuous counts `x` (slot order as in
+    /// [`Self::fluid_slots`]): for every array move, its rate (functional
+    /// rates evaluated at `x`) times its stoichiometry, summed. This is the
+    /// Bio-PEPA fluid semantics restricted to array populations; single
+    /// components are an error, since one copy has no mean field.
+    pub fn fluid_drift(&self, x: &[f64]) -> Result<Vec<f64>, PepaError> {
+        let engine = Engine {
+            local: &self.local,
+            layout: &self.layout,
+            names: &self.names,
+        };
+        engine.drift(&self.shape, x)
+    }
+
     /// For a component (or array) at the given leaf position (left to right
     /// in the system equation), the number of copies in each local state.
     pub fn local_counts(&self, s: StateId, leaf: usize) -> Vec<(String, u32)> {
@@ -90,11 +118,13 @@ impl<A: Action> DerivedModel<A> {
 /// Local derivative graph of all sequential components. Node ids index every
 /// syntactic `Seq` subterm; constants are resolved to their definition, so
 /// `(a, r).P` and `P`'s own body lead to the same derivative.
+#[derive(Debug, Clone)]
 struct Local<A> {
     nodes: Vec<Node<A>>,
     roots: Vec<u32>,
 }
 
+#[derive(Debug, Clone)]
 enum Node<A> {
     Prefix(A, Rate, u32),
     Choice(Vec<u32>),
@@ -165,7 +195,7 @@ impl<A: Action> Local<A> {
     /// One-step local transitions `(action, rate, canonical target)`.
     fn transitions(&self, n: u32, out: &mut Vec<(A, Rate, u32)>) {
         match &self.nodes[n as usize] {
-            Node::Prefix(a, r, next) => out.push((a.clone(), *r, self.canon(*next))),
+            Node::Prefix(a, r, next) => out.push((a.clone(), r.clone(), self.canon(*next))),
             Node::Choice(xs) => xs.iter().for_each(|x| self.transitions(*x, out)),
             Node::Const(id) => self.transitions(self.root(*id), out),
         }
@@ -248,9 +278,52 @@ type Move<A> = (Act<A>, Rate, Vec<(usize, u32)>);
 struct Engine<'a, A> {
     local: &'a Local<A>,
     layout: &'a Layout,
+    names: &'a [String],
 }
 
 impl<A: Action> Engine<'_, A> {
+    /// Number of copies currently in local derivative `name`, over all
+    /// leaves of the system equation.
+    fn count(&self, v: &[u32], name: &str) -> f64 {
+        let mut n = 0u32;
+        for leaf in &self.layout.leaves {
+            match leaf {
+                Leaf::Single { offset } => {
+                    if self.names[v[*offset] as usize] == name {
+                        n += 1;
+                    }
+                }
+                Leaf::Array { offset, nodes, .. } => {
+                    for (slot, node) in nodes.iter().enumerate() {
+                        if self.names[*node as usize] == name {
+                            n += v[offset + slot];
+                        }
+                    }
+                }
+            }
+        }
+        n as f64
+    }
+
+    /// Evaluates a (possibly functional) rate in the current global state.
+    /// Zero evaluates to a zero rate (dropped downstream like any zero
+    /// weight); negative or non-finite values are a model error.
+    fn concretize(&self, rate: &Rate, v: &[u32], label: &Act<A>) -> Result<Rate, PepaError> {
+        match rate {
+            Rate::Functional(f) => {
+                let value = f.eval(&|n| self.count(v, n)).unwrap_or(f64::NAN);
+                if !value.is_finite() || value < 0.0 {
+                    return Err(PepaError::InvalidFunctionalRate {
+                        action: label.to_string(),
+                        value,
+                    });
+                }
+                Ok(Rate::Active(value))
+            }
+            other => Ok(other.clone()),
+        }
+    }
+
     fn moves(&self, shape: &Shape<A>, v: &[u32]) -> Result<Vec<Move<A>>, PepaError> {
         match shape {
             Shape::Leaf(i) => {
@@ -260,7 +333,9 @@ impl<A: Action> Engine<'_, A> {
                     Leaf::Single { offset } => {
                         self.local.transitions(v[*offset], &mut buf);
                         for (a, r, t) in buf {
-                            out.push((Act::Act(a), r, vec![(*offset, t)]));
+                            let label = Act::Act(a);
+                            let r = self.concretize(&r, v, &label)?;
+                            out.push((label, r, vec![(*offset, t)]));
                         }
                     }
                     Leaf::Array {
@@ -276,13 +351,15 @@ impl<A: Action> Engine<'_, A> {
                             buf.clear();
                             self.local.transitions(node, &mut buf);
                             for (a, r, t) in buf.drain(..) {
+                                let label = Act::Act(a);
+                                let r = self.concretize(&r, v, &label)?;
                                 let to = offset + index[&t];
                                 // Two updates: leave `node`, enter `t` (equal for self-loops).
                                 let updates = vec![
                                     (offset + slot, count - 1),
                                     (to, v[to] + 1 - u32::from(to == offset + slot)),
                                 ];
-                                out.push((Act::Act(a), r.scale(f64::from(count)), updates));
+                                out.push((label, r.scale(f64::from(count)), updates));
                             }
                         }
                     }
@@ -317,7 +394,7 @@ impl<A: Action> Engine<'_, A> {
                     let apparent = |ms: &[&Move<A>]| {
                         ms.iter()
                             .skip(1)
-                            .try_fold(ms[0].1, |acc, m| acc.add(m.1))
+                            .try_fold(ms[0].1.clone(), |acc, m| acc.add(m.1.clone()))
                             .map_err(|_| PepaError::MixedRates {
                                 action: a.to_string(),
                             })
@@ -325,7 +402,12 @@ impl<A: Action> Engine<'_, A> {
                     let (ra_l, ra_r) = (apparent(&ls)?, apparent(&rs)?);
                     for ml in &ls {
                         for mr in &rs {
-                            let rate = Rate::cooperate(ml.1, ra_l, mr.1, ra_r);
+                            let rate = Rate::cooperate(
+                                ml.1.clone(),
+                                ra_l.clone(),
+                                mr.1.clone(),
+                                ra_r.clone(),
+                            );
                             let mut updates = ml.2.clone();
                             updates.extend(mr.2.iter().copied());
                             out.push((Act::Act(a.clone()), rate, updates));
@@ -336,9 +418,292 @@ impl<A: Action> Engine<'_, A> {
             }
         }
     }
+
+    /// Continuous counts for the fluid approximation: like [`Self::count`]
+    /// but over a float vector.
+    fn count_float(&self, x: &[f64], name: &str) -> f64 {
+        let mut n = 0.0;
+        for leaf in &self.layout.leaves {
+            match leaf {
+                // Singles never reach here (fluid rejects them first); the
+                // bounds check keeps fractional vectors from panicking.
+                Leaf::Single { offset } => {
+                    let id = x[*offset];
+                    if id >= 0.0 && id < self.names.len() as f64 && self.names[id as usize] == name
+                    {
+                        n += 1.0;
+                    }
+                }
+                Leaf::Array { offset, nodes, .. } => {
+                    for (slot, node) in nodes.iter().enumerate() {
+                        if self.names[*node as usize] == name {
+                            n += x[offset + slot];
+                        }
+                    }
+                }
+            }
+        }
+        n
+    }
+
+    /// Like [`Self::concretize`] but over continuous counts.
+    fn concretize_float(&self, rate: &Rate, x: &[f64], label: &Act<A>) -> Result<Rate, PepaError> {
+        match rate {
+            Rate::Functional(f) => {
+                let value = f.eval(&|n| self.count_float(x, n)).unwrap_or(f64::NAN);
+                if !value.is_finite() || value < 0.0 {
+                    return Err(PepaError::InvalidFunctionalRate {
+                        action: label.to_string(),
+                        value,
+                    });
+                }
+                Ok(Rate::Active(value))
+            }
+            other => Ok(other.clone()),
+        }
+    }
+
+    /// Fluid moves: the float mirror of [`Self::moves`]. Rates are
+    /// concretized at `x` (functional rates read continuous counts) and
+    /// updates are stoichiometry deltas `(slot, delta)` instead of absolute
+    /// assignments. Single components are rejected (one copy has no mean
+    /// field); self-loops contribute nothing and are skipped.
+    fn dmove(&self, shape: &Shape<A>, x: &[f64]) -> Result<Vec<DMove<A>>, PepaError> {
+        match shape {
+            Shape::Leaf(i) => {
+                let mut out = Vec::new();
+                let mut buf = Vec::new();
+                match &self.layout.leaves[*i] {
+                    Leaf::Single { .. } => {
+                        return Err(PepaError::FluidRequiresArrays {
+                            component: self.layout.leaf_names[*i].clone(),
+                        });
+                    }
+                    Leaf::Array {
+                        offset,
+                        nodes,
+                        index,
+                    } => {
+                        for (slot, &node) in nodes.iter().enumerate() {
+                            let count = x[offset + slot];
+                            if count <= 0.0 {
+                                continue;
+                            }
+                            buf.clear();
+                            self.local.transitions(node, &mut buf);
+                            for (a, r, t) in buf.drain(..) {
+                                let label = Act::Act(a);
+                                let r = self.concretize_float(&r, x, &label)?;
+                                let to = offset + index[&t];
+                                if to == offset + slot {
+                                    continue; // self-loop: no net flow
+                                }
+                                let updates = vec![(offset + slot, -1.0), (to, 1.0)];
+                                out.push((label, r.scale(count), updates));
+                            }
+                        }
+                    }
+                }
+                Ok(out)
+            }
+            Shape::Hide(inner, set) => Ok(self
+                .dmove(inner, x)?
+                .into_iter()
+                .map(|(l, r, u)| match l {
+                    Act::Act(a) if set.contains(&a) => (Act::Tau, r, u),
+                    other => (other, r, u),
+                })
+                .collect()),
+            Shape::Coop(l, set, r) => {
+                let left = self.dmove(l, x)?;
+                let right = self.dmove(r, x)?;
+                let mut out = Vec::new();
+                let shared = |m: &DMove<A>| matches!(&m.0, Act::Act(a) if set.contains(a));
+                out.extend(left.iter().filter(|m| !shared(m)).cloned());
+                out.extend(right.iter().filter(|m| !shared(m)).cloned());
+                for a in set {
+                    let ls: Vec<&DMove<A>> =
+                        left.iter().filter(|m| m.0 == Act::Act(a.clone())).collect();
+                    let rs: Vec<&DMove<A>> = right
+                        .iter()
+                        .filter(|m| m.0 == Act::Act(a.clone()))
+                        .collect();
+                    if ls.is_empty() || rs.is_empty() {
+                        continue;
+                    }
+                    let apparent = |ms: &[&DMove<A>]| {
+                        ms.iter()
+                            .skip(1)
+                            .try_fold(ms[0].1.clone(), |acc, m| acc.add(m.1.clone()))
+                            .map_err(|_| PepaError::MixedRates {
+                                action: a.to_string(),
+                            })
+                    };
+                    let (ra_l, ra_r) = (apparent(&ls)?, apparent(&rs)?);
+                    for ml in &ls {
+                        for mr in &rs {
+                            let rate = Rate::cooperate(
+                                ml.1.clone(),
+                                ra_l.clone(),
+                                mr.1.clone(),
+                                ra_r.clone(),
+                            );
+                            let mut updates = ml.2.clone();
+                            updates.extend(mr.2.iter().copied());
+                            out.push((Act::Act(a.clone()), rate, updates));
+                        }
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// Mean-field drift `dx/dt` at `x`: every move's rate times its
+    /// stoichiometry, summed per slot. Passive rates reaching the top
+    /// level are the same modelling error as in SOS derivation.
+    fn drift(&self, shape: &Shape<A>, x: &[f64]) -> Result<Vec<f64>, PepaError> {
+        let mut dx = vec![0.0; x.len()];
+        for (label, rate, updates) in self.dmove(shape, x)? {
+            let Rate::Active(r) = rate else {
+                return Err(PepaError::UnsynchronisedPassive(label.to_string()));
+            };
+            for (slot, delta) in updates {
+                dx[slot] += r * delta;
+            }
+        }
+        Ok(dx)
+    }
+}
+
+/// One fluid move: label, concretized rate, stoichiometry deltas.
+type DMove<A> = (Act<A>, Rate, Vec<(usize, f64)>);
+
+/// A model compiled for analysis without enumerating its state space:
+/// local derivative graphs, slot layout and cooperation shape. This is
+/// all the fluid (mean-field) approximation needs, so large populations
+/// stay cheap.
+#[derive(Debug, Clone)]
+pub struct FluidModel<A> {
+    names: Vec<String>,
+    layout: Layout,
+    local: Local<A>,
+    shape: Shape<A>,
+    init: Vec<u32>,
+}
+
+impl<A: Action> FluidModel<A> {
+    /// Initial counts as floats, in slot order (see [`Self::fluid_slots`]).
+    pub fn initial_counts(&self) -> Vec<f64> {
+        self.init.iter().map(|&c| c as f64).collect()
+    }
+
+    /// `(leaf name, derivative name)` per slot, in slot order.
+    pub fn fluid_slots(&self) -> Vec<(String, String)> {
+        slots_of(&self.layout, &self.names)
+    }
+
+    /// Names of the components in the system equation, left to right.
+    pub fn leaves(&self) -> &[String] {
+        &self.layout.leaf_names
+    }
+
+    /// Mean-field drift `dx/dt` at continuous counts `x`; see
+    /// [`DerivedModel::fluid_drift`].
+    pub fn fluid_drift(&self, x: &[f64]) -> Result<Vec<f64>, PepaError> {
+        let engine = Engine {
+            local: &self.local,
+            layout: &self.layout,
+            names: &self.names,
+        };
+        engine.drift(&self.shape, x)
+    }
+}
+
+/// `(leaf name, derivative name)` per slot, in slot order.
+fn slots_of(layout: &Layout, names: &[String]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (leaf, l) in layout.leaves.iter().enumerate() {
+        let leaf_name = layout.leaf_names[leaf].clone();
+        match l {
+            Leaf::Single { .. } => out.push((leaf_name, "(single)".to_owned())),
+            Leaf::Array { nodes, .. } => {
+                for n in nodes {
+                    out.push((leaf_name.clone(), names[*n as usize].clone()));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Everything derivation needs before state-space enumeration.
+struct Prepared<A> {
+    local: Local<A>,
+    names: Vec<String>,
+    layout: Layout,
+    shape: Shape<A>,
+    init: Vec<u32>,
 }
 
 impl<A: Action> PepaModel<A> {
+    /// Validates, compiles locals, resolves species names and builds the
+    /// cooperation shape: the shared front half of [`Self::derive_with`]
+    /// and [`Self::fluid_model`].
+    fn prepare(&self) -> Result<Prepared<A>, PepaError> {
+        self.validate()?;
+        let (local, names) = Local::compile(self)?;
+        // Functional rates refer to derivatives by name; resolve them now
+        // that every derivative has a compiled name.
+        let mut needed = Vec::new();
+        for (_, def) in &self.seqs {
+            if let Some(def) = def {
+                collect_rate_counts(def, &mut needed);
+            }
+        }
+        if !needed.is_empty() {
+            let available: Vec<String> = self
+                .seqs
+                .iter()
+                .filter_map(|(n, d)| d.as_ref().map(|_| n.clone()))
+                .collect();
+            for name in &needed {
+                if !names.iter().any(|n| n == name) {
+                    return Err(PepaError::UndefinedSpecies {
+                        name: name.clone(),
+                        available: available.clone(),
+                    });
+                }
+            }
+        }
+        let mut leaves = Vec::new();
+        let mut init = Vec::new();
+        let shape = build_shape(&self.system, &local, &mut leaves, &mut init);
+        let mut leaf_names = Vec::new();
+        self.leaf_names(&self.system, &mut leaf_names);
+        let layout = Layout { leaves, leaf_names };
+        Ok(Prepared {
+            local,
+            names,
+            layout,
+            shape,
+            init,
+        })
+    }
+
+    /// Compiles the model for fluid (mean-field) analysis without
+    /// enumerating its state space.
+    pub fn fluid_model(&self) -> Result<FluidModel<A>, PepaError> {
+        let prepared = self.prepare()?;
+        Ok(FluidModel {
+            names: prepared.names,
+            layout: prepared.layout,
+            local: prepared.local,
+            shape: prepared.shape,
+            init: prepared.init,
+        })
+    }
+
     /// Derives the state space with default limits. See [`Self::derive_with`].
     pub fn derive(&self) -> Result<DerivedModel<A>, PepaError> {
         self.derive_with(DeriveOptions::default())
@@ -350,17 +715,18 @@ impl<A: Action> PepaModel<A> {
     /// for strong equivalence: the result is lumpably equivalent to expanding
     /// the `n` copies. Passive activities left at the top level are an error.
     pub fn derive_with(&self, options: DeriveOptions) -> Result<DerivedModel<A>, PepaError> {
-        self.validate()?;
-        let (local, names) = Local::compile(self)?;
-        let mut leaves = Vec::new();
-        let mut init = Vec::new();
-        let shape = build_shape(&self.system, &local, &mut leaves, &mut init);
-        let mut leaf_names = Vec::new();
-        self.leaf_names(&self.system, &mut leaf_names);
-        let layout = Layout { leaves, leaf_names };
+        let prepared = self.prepare()?;
+        let Prepared {
+            local,
+            names,
+            layout,
+            shape,
+            init,
+        } = prepared;
         let engine = Engine {
             local: &local,
             layout: &layout,
+            names: &names,
         };
 
         let mut ids: HashMap<Vec<u32>, StateId> = HashMap::new();
@@ -402,6 +768,8 @@ impl<A: Action> PepaModel<A> {
             states,
             names,
             layout,
+            local,
+            shape,
         })
     }
 }
@@ -539,6 +907,18 @@ impl<A: Action> PepaModel<A> {
             });
         }
         Ok(graphs)
+    }
+}
+
+/// Every species name (`#Name`) used by functional rates in a component.
+fn collect_rate_counts<A>(s: &Seq<A>, out: &mut Vec<String>) {
+    match s {
+        Seq::Prefix(_, r, k) => {
+            r.counts(out);
+            collect_rate_counts(k, out);
+        }
+        Seq::Choice(xs) => xs.iter().for_each(|x| collect_rate_counts(x, out)),
+        Seq::Const(_) => {}
     }
 }
 

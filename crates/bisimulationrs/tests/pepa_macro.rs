@@ -41,3 +41,25 @@ fn compare_two_macro_models() {
     .unwrap();
     assert_eq!(bisimilar(&expanded.lts, &aggregated.lts), Verdict::Holds);
 }
+
+#[test]
+fn macro_supports_functional_rates() {
+    // Note: `pepa!` stringifies `#I` as `# I`; the parser accepts both.
+    let from_macro = pepa! {
+        beta = 0.3;
+        S = (infect, beta * #I).I;
+        I = (recover, 0.1).R;
+        R = 0;
+        S[2] || I[1]
+    };
+    let from_text = parse_pepa(
+        "beta = 0.3;
+         S = (infect, beta * #I).I;
+         I = (recover, 0.1).R;
+         R = 0;
+         S[2] || I[1]",
+    )
+    .unwrap();
+    assert_eq!(from_macro, from_text);
+    assert_eq!(from_macro.derive().unwrap().num_states(), 12);
+}

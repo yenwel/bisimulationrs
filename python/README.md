@@ -31,6 +31,30 @@ result.b_mimics_a                 # False
 result["b_mimics_a"].formula      # '⟨disease⟩⟨healing⟩tt': A can get sick and then heal, B cannot
 ```
 
+PEPA rates can depend on the live population (Bio-PEPA-style functional
+rates), and PRISM guarded-command models import directly:
+
+```python
+sir = bs.Model("""
+    beta = 0.3;
+    S = (infect, beta * #I).I;
+    I = (recover, 0.1).R;
+    R = 0;
+    S[9] || I[1]
+""")
+
+prism = bs.PrismModel("""
+    ctmc
+    module sir
+      s : [0..10] init 9;
+      i : [0..10] init 1;
+      [infect] s > 0 & i > 0 -> 0.3*s*i : (s'=s-1) & (i'=i+1);
+      [recover] i > 0 -> 0.1*i : (i'=i-1);
+    endmodule
+""")
+prism.summary()                   # 65 valuations, lumped, steady state
+```
+
 ## Build from source
 
 ```sh

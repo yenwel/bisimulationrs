@@ -28,6 +28,8 @@ bisim-algebra = { path = "crates/bisim-algebra", version = "0.2.0" }
 bisim-pepa-macros = { path = "crates/bisim-pepa-macros", version = "0.2.0" }
 bisim-stochastic = { path = "crates/bisim-stochastic", version = "0.2.0" }
 bisim-api = { path = "crates/bisim-api", version = "0.2.0" }
+futures-core = "0.3"
+criterion = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 proc-macro2 = "1"

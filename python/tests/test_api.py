@@ -131,3 +131,75 @@ def test_large_independent_population():
     assert big.summary()["states"] is None
     t = big.over_time([0, 50])
     assert t[t["time"] == 50]["expected"].sum() == pytest.approx(500)
+
+
+def test_prism_model():
+    m = bs.PrismModel(
+        "ctmc module m s : [0..1] init 0;"
+        " [] s=0 -> 1.5 : (s'=1); [] s=1 -> 2.5 : (s'=0); endmodule"
+    )
+    assert m.summary() == {"states": 2, "transitions": 2, "lumped_states": 2, "variables": ["s"], "note": None}
+    states = m.states()
+    assert list(states.columns) == ["state", "name", "initial", "lumped_state", "steady_state"]
+    assert states["steady_state"].sum() == pytest.approx(1.0)
+    assert states.loc[states["state"] == 0, "steady_state"].item() == pytest.approx(2.5 / 4.0)
+    assert set(m.transitions().columns) == {"source", "target", "action", "rate"}
+    with pytest.raises(bs.ModelError, match="mdp"):
+        bs.PrismModel("mdp module m x : [0..1] init 0; endmodule")
+
+
+def test_query_rewards_and_fluid():
+    m = bs.PrismModel(
+        "ctmc module m s : [0..1] init 0;"
+        " [go] s=0 -> 1.5 : (s'=1); [back] s=1 -> 2.5 : (s'=0); endmodule"
+        ' rewards "r" s=1 : 10; [go] s=0 : 2; endrewards'
+    )
+    r = m.query("P=? [F<=1 s=1]")
+    assert r["probability"] == pytest.approx(1 - math.exp(-1.5), abs=1e-6)
+    assert m.query("P>=0.9 [F<=5 s=1]")["holds"] is True
+    assert m.query("S=? [s=0]")["probability"] == pytest.approx(2.5 / 4.0)
+    rewards = m.rewards()
+    assert list(rewards.columns) == ["block", "state", "transition"]
+    assert rewards.loc[0, "state"] == pytest.approx(3.75)
+    assert rewards.loc[0, "transition"] == pytest.approx(1.875)
+
+    sir = bs.Model(
+        "beta = 0.3; gamma = 0.1;"
+        " S = (infect, beta * #I).I; I = (recover, gamma).R; R = 0;"
+        " S[9] || I[1]"
+    )
+    long = sir.fluid_over_time([0.0, 30.0], dt=0.05)
+    assert list(long.columns) == ["time", "component", "state", "expected"]
+    assert long["expected"].sum() == pytest.approx(10.0 * 2, abs=1e-6)
+    i0 = long[(long["state"] == "I") & (long["time"] == 0.0)]["expected"].sum()
+    assert i0 == pytest.approx(1.0)
+
+    import json as _json
+
+    jani = _json.dumps(
+        {
+            "jani-version": 1,
+            "name": "m",
+            "type": "ctmc",
+            "variables": {
+                "s": {"type": {"kind": "bounded", "lower-bound": 0, "upper-bound": 1}, "initial-value": 0}
+            },
+            "automata": [
+                {
+                    "name": "m",
+                    "locations": [{"name": "l"}],
+                    "initial-location": "l",
+                    "edges": [
+                        {"location": "l", "guard": {"op": "=", "left": "s", "right": 0},
+                         "rate": 1.5, "destinations": [{"location": "l", "assignments": [{"ref": "s", "value": 1}]}]},
+                        {"location": "l", "guard": {"op": "=", "left": "s", "right": 1},
+                         "rate": 2.5, "destinations": [{"location": "l", "assignments": [{"ref": "s", "value": 0}]}]},
+                    ],
+                }
+            ],
+            "system": {"elements": [{"automaton": "m"}]},
+        }
+    )
+    jm = bs.PrismModel.from_jani(jani)
+    assert jm.summary()["states"] == 2
+    assert jm.query("S=? [s=0]")["probability"] == pytest.approx(2.5 / 4.0)
