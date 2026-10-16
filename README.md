@@ -48,11 +48,11 @@ The long-term objective is to compare non-deterministic, potentially infinite or
 | crate | contents |
 |---|---|
 | `bisim-core` | weighted LTS `Wlts<L, W>` (coalgebra `X → FS(X, W)^L`), semirings (`bool`, `u64`, `Real`), partitions, HML formulas, verdicts |
-| `bisim-refine` | signature-based partition refinement with every round kept (`∼ₙ`), distinguishing formulas, simulation preorder, `compare` / `bisimilar` / `minimise` |
-| `bisim-algebra` | PEPA: AST, typed builder, `.pepa` parser and printer, validator, SOS derivation (cooperation with apparent rates, passive rates, hiding, arrays in counting form) |
-| `bisim-pepa-macros` | `pepa!`: PEPA models checked at compile time |
-| `bisim-stochastic` | CTMC from a rate-labelled system: steady state, transient analysis by uniformisation |
-| `bisim-api` | plain, serialisable API (check, analyse, over time, compare, observations, forecast, fit) and one JSON entry point shared by all bindings |
+| `bisim-refine` | signature-based partition refinement with every round kept (`∼ₙ`), distinguishing formulas, simulation preorder, on-the-fly game with budgets, worklist fast backend, `(ε, δ)` quasi-bisimulation, `compare` / `bisimilar` / `minimise` |
+| `bisim-algebra` | PEPA: AST, typed builder, `.pepa` parser and printer, validator, SOS derivation (cooperation with apparent rates, passive rates, functional `#Count` rates, hiding, arrays in counting form), fluid drift; PRISM `dtmc`/`ctmc` subset import (consts, formulas, synchronising modules, rewards, `system` blocks, queries); JANI subset import (Storm/Modest interchange) |
+| `bisim-pepa-macros` | `pepa!`: PEPA models checked at compile time (functional rates included) |
+| `bisim-stochastic` | CTMC from a rate-labelled system: steady state, transient analysis by uniformisation, Gillespie SSA trajectories and ensembles, event logs + MLE rate learning, fluid RK4 integration, DTMC/CTMC reachability solvers |
+| `bisim-api` | plain, serialisable API (check, analyse, analyse_prism, analyse_jani, query, fluid, over time, compare, observations, forecast, fit) and one JSON entry point shared by all bindings |
 | `bisim-wasm` | the API compiled to WebAssembly for the web editor |
 | `bisimulationrs` | facade re-exporting everything; `legacy` keeps the 0.1 API (deprecated) |
 
@@ -112,6 +112,45 @@ The listed references converge on a practical architecture:
 5. **Quantitative and stochastic extension path**
    - Add pseudometrics and confidence-aware verdict streams (`HoldsSoFar`, `Violated`, `Unknown(p)`), especially for data-derived models.
 
+## Modern landscape (where this crate sits)
+
+Exact bisimulation is classic (Park/Milner, Paige–Tarjan `O(m log n)`)
+and still infrastructure, not a fad — but the scalable front-ends live
+elsewhere. This crate implements the textbook baseline; the tools below
+are what to reach for at scale, and the direction new code here follows:
+
+- **Probabilistic model checkers**: PRISM (Kwiatkowska et al.,
+  `prismmodelchecker.org`) and Storm (`stormchecker.org`, Dehnert et
+  al., CAV 2017) — guarded-command modelling, CSL/PCTL checking,
+  symbolic (MTBDD) and sparse engines, bisimulation minimisation as a
+  preprocessing pass, plus a Monte-Carlo simulator engine.
+- **Modest** (Hahn et al., `modestchecker.net`) — process algebra with
+  data, `modes` statistical model checker for large stochastic systems.
+  Import Modest models via its JANI export (`analyse_jani`,
+  `PrismModel.from_jani`); the native language remains future work.
+- **Bio-PEPA** (Ciocchetta & Hillston, TCS 2009,
+  `homepages.inf.ed.ac.uk/jeh/Bio-PEPA/`) — species with stoichiometry
+  and *functional rates* (e.g. mass action `beta*S*I`), fluid ODE
+  approximation and SSA simulation for large populations. Functional
+  rates (`beta * #I`) are supported here too; compartments,
+  stoichiometry and fluid limits are not (yet).
+- **Coalgebraic partition refinement**: efficient generic algorithms in
+  `O((m+n) log n)` (Dorsch, Milius, Schröder, Wißmann, CONCUR 2017;
+  Wißmann & Jacobs, 2022) and the CoPaR tool — the faster backend our
+  naive Kleene iteration (`bisim-refine::refine`) is tested against but
+  does not yet match.
+- **Approximate bisimulation** (the answer to noisy rates): a spectrum
+  of approximate probabilistic bisimulations (Spork, Baier, Katoen et
+  al., CONCUR 2024) and `(ε, δ)`-bisimulation for CTMCs with bounds on
+  time-bounded reachability (Baier, Katoen et al., 2025). See
+  `bisim_refine::{approx_bisimilar_states, approx_distance,
+  lumping_error}` (`Verdict::Approx`), which implements the
+  quasi-lumpability check in that spirit, and `examples/sir/` for the
+  PEPA ↔ Bio-PEPA ↔ PRISM correspondence.
+- **Scale-out techniques**: statistical model checking, fluid/mean-field
+  limits, moment closures and on-the-fly game algorithms (see the
+  streaming-first architecture above).
+
 ## Near-term roadmap for this crate
 
 - [x] Provide an incremental prefix checker API (now `legacy`).
@@ -122,12 +161,19 @@ The listed references converge on a practical architecture:
 - [x] CTMC steady-state and transient analysis (`bisim-stochastic`).
 - [x] Web editor and visualiser (WebAssembly), Python and R bindings.
 - [x] Observations: dated counts (dd/mm/yyyy) checked against a plan with exact ranges and an adjusted on-track verdict; rate fitting; see `examples/garden/`.
-- [ ] Event logs per individual (state, label, time) and learning models from unlabelled sequences.
-- [ ] Add a proper on-the-fly game algorithm over discovered states.
-- [ ] Stochastic race semantics (Gillespie SSA) and fluid ODEs for PEPA benchmarks.
-- [ ] Support bounded memory with configurable eviction/windowing policies.
-- [ ] Expose async adapters (`futures::Stream`) and channel-based ingestion.
-- [ ] Add benchmark suites: dense finite LTS, sparse stochastic traces, cyclic workloads.
+- [x] Quasi-Markovian `(ε, δ)` check with behavioural distance (`Verdict::Approx`) and `lumping_error` for quasi-lumpability (`bisim-refine::approx`).
+- [x] Stochastic race semantics: Gillespie SSA trajectories + Monte-Carlo ensembles (`bisim-stochastic::simulate`); SIR correspondence example PEPA ↔ Bio-PEPA ↔ PRISM (`examples/sir/`).
+- [x] Bio-PEPA-style functional rates (`beta * #I`, per-state evaluation in SOS) in text, builder and `pepa!`; PRISM `dtmc`/`ctmc` subset import with CSP synchronisation (`bisim-algebra::prism`, `analyse_prism`, `analyse_prism` JSON op).
+- [x] Event logs per trajectory (`Trajectory::log`: time, state, label) and MLE rate learning from labelled or unlabelled sequences (`learn_rates`, `without_labels`; `bisim-stochastic::simulate`).
+- [x] On-the-fly bisimulation game over lazily discovered pairs (Stirling game with budgets → `Holds`/`HoldsUpTo`/`Unknown`/`Violated` + HML witness; `bisim-refine::game`).
+- [x] Fluid ODE mean-field limits for array populations (SOS drift + RK4, no enumeration; `fluid_model`, `bisim-stochastic::integrate`, `fluid()` API + JSON op).
+- [x] PRISM rewards (`rewards` blocks → steady-state expectations) and `system` composition (`||`, `|[...]|`); JANI subset import lowering to the same AST (Storm/Modest interchange; `analyse_jani`, `query_jani`); CSL/PCTL-lite queries (`P[F]`, `P[F<=t]`, `S`, thresholds; `query_prism`, `query` JSON op).
+- [x] Faster backend: worklist refinement with dirty flags, cached signatures and Hopcroft move bound (`refine_fast`, differential-tested; drives `minimise` and the API analyses).
+- [x] Bounded memory: windowed prefix checker with FIFO/reservoir eviction (`legacy::WindowedPrefixChecker`).
+- [x] Async adapters (`ingest_stream` over `futures::Stream`, no executor needed) and `mpsc` channel ingestion (`ingest`, `try_ingest`).
+- [x] Benchmark suites (`cargo bench -p bisimulationrs`): dense finite LTS (naive vs worklist), structured PEPA models, chains, cycles, stochastic traces, SSA ensembles, enumeration-free fluid, PRISM derive/transient.
+- [ ] Full counting-based Paige–Tarjan `O(m log n)` backend; symbolic (MTBDD) engine.
+- [ ] Full Modest language import; CSL `G`/`U`, nested system composition, renaming synchronisation; fluid for single components.
 
 ## Practical domain fit
 

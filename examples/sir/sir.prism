@@ -1,0 +1,19 @@
+// SIR epidemic for 10 people (9 susceptible, 1 infected) as PRISM
+// guarded commands. The functional rate beta*s*i is mass action, exactly
+// like sir_fun.pepa's `beta * #I` (per susceptible) aggregated over all
+// susceptibles. Compare sir.pepa for the classic PEPA cooperation
+// encoding, whose pressure scales with #S only.
+// Rates are per day.
+ctmc
+
+const double beta = 0.3;
+const double gamma = 0.1;
+const int N = 10;
+
+module sir
+  s : [0..N] init 9;
+  i : [0..N] init 1;
+
+  [infect] s > 0 & i > 0 -> beta*s*i : (s'=s-1) & (i'=i+1);
+  [recover] i > 0 -> gamma*i : (i'=i-1);
+endmodule

@@ -304,6 +304,238 @@ impl GroupedPepaProcess {
     }
 }
 
+/// Which side of a comparison an ingested transition belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+}
+
+/// Bounded-memory eviction policy for [`WindowedPrefixChecker`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvictionPolicy {
+    /// Sliding window: keep the most recent `capacity` observations.
+    DropOldest,
+    /// Uniform reservoir sample of everything seen (Vitter's Algorithm R
+    /// with a seeded SplitMix64 stream, hence reproducible).
+    Reservoir { seed: u64 },
+}
+
+/// A [`PrefixBisimulationChecker`] that keeps at most `capacity`
+/// observations per side, evicting under `policy`. Verdicts are computed
+/// over the current window, so old evidence ages out: a `Violated`
+/// verdict can return to `HoldsSoFar` once the offending prefix leaves
+/// the window.
+#[derive(Debug, Clone)]
+pub struct WindowedPrefixChecker<S, L>
+where
+    S: Eq + Hash + Clone,
+    L: Eq + Hash + Clone,
+{
+    capacity: usize,
+    policy: EvictionPolicy,
+    left: Window<S, L>,
+    right: Window<S, L>,
+}
+
+#[derive(Debug, Clone)]
+struct Window<S, L> {
+    counts: HashMap<ObservedTransition<S, L>, usize>,
+    order: std::collections::VecDeque<ObservedTransition<S, L>>,
+    seen: u64,
+    rng: u64,
+}
+
+impl<S: Eq + Hash + Clone, L: Eq + Hash + Clone> Window<S, L> {
+    fn new(seed: u64) -> Self {
+        Self {
+            counts: HashMap::new(),
+            order: std::collections::VecDeque::new(),
+            seen: 0,
+            rng: seed,
+        }
+    }
+
+    fn splitmix(state: &mut u64) -> u64 {
+        *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = *state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    fn insert(&mut self, t: ObservedTransition<S, L>, capacity: usize, policy: EvictionPolicy) {
+        if capacity == 0 {
+            return;
+        }
+        match policy {
+            EvictionPolicy::DropOldest => {
+                self.order.push_back(t.clone());
+                *self.counts.entry(t).or_insert(0) += 1;
+                if self.order.len() > capacity {
+                    let old = self.order.pop_front().expect("non-empty");
+                    let count = self.counts.get_mut(&old).expect("counted");
+                    *count -= 1;
+                    if *count == 0 {
+                        self.counts.remove(&old);
+                    }
+                }
+            }
+            EvictionPolicy::Reservoir { .. } => {
+                self.seen += 1;
+                if (self.order.len() as u64) < capacity as u64 {
+                    self.order.push_back(t.clone());
+                    *self.counts.entry(t).or_insert(0) += 1;
+                } else {
+                    let j = Self::splitmix(&mut self.rng) % self.seen;
+                    if j < capacity as u64 {
+                        let victim = self.order[j as usize].clone();
+                        let count = self.counts.get_mut(&victim).expect("counted");
+                        *count -= 1;
+                        if *count == 0 {
+                            self.counts.remove(&victim);
+                        }
+                        self.order[j as usize] = t.clone();
+                        *self.counts.entry(t).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    fn as_set(&self) -> HashSet<ObservedTransition<S, L>> {
+        self.counts.keys().cloned().collect()
+    }
+}
+
+impl<S, L> WindowedPrefixChecker<S, L>
+where
+    S: Eq + Hash + Clone,
+    L: Eq + Hash + Clone,
+{
+    pub fn new(capacity: usize, policy: EvictionPolicy) -> Self {
+        let seed = match policy {
+            EvictionPolicy::Reservoir { seed } => seed,
+            _ => 0,
+        };
+        Self {
+            capacity,
+            policy,
+            left: Window::new(seed),
+            right: Window::new(seed),
+        }
+    }
+
+    pub fn observe(&mut self, side: Side, transition: ObservedTransition<S, L>) {
+        match side {
+            Side::Left => self.left.insert(transition, self.capacity, self.policy),
+            Side::Right => self.right.insert(transition, self.capacity, self.policy),
+        }
+    }
+
+    pub fn observe_all<I>(&mut self, side: Side, transitions: I)
+    where
+        I: IntoIterator<Item = ObservedTransition<S, L>>,
+    {
+        for t in transitions {
+            self.observe(side, t);
+        }
+    }
+
+    /// Drains `rx` (blocking) into `side`; returns observations consumed.
+    pub fn ingest(
+        &mut self,
+        side: Side,
+        rx: std::sync::mpsc::Receiver<ObservedTransition<S, L>>,
+    ) -> usize {
+        let mut n = 0;
+        for t in rx {
+            self.observe(side, t);
+            n += 1;
+        }
+        n
+    }
+
+    /// Drains all currently queued items of `rx` (non-blocking).
+    pub fn try_ingest(
+        &mut self,
+        side: Side,
+        rx: &std::sync::mpsc::Receiver<ObservedTransition<S, L>>,
+    ) -> usize {
+        let mut n = 0;
+        while let Ok(t) = rx.try_recv() {
+            self.observe(side, t);
+            n += 1;
+        }
+        n
+    }
+
+    /// Consumes a `futures::Stream` of transitions into `side` (drive with
+    /// any executor); returns observations consumed. A `Pending` poll ends
+    /// ingestion early (partial count); call again to continue once the
+    /// caller's executor wakes the task.
+    pub async fn ingest_stream<St>(&mut self, side: Side, mut stream: St) -> usize
+    where
+        St: futures_core::Stream<Item = ObservedTransition<S, L>> + Unpin,
+    {
+        use std::sync::Arc;
+        use std::task::{Context, Poll, Wake, Waker};
+
+        struct Noop;
+        impl Wake for Noop {
+            fn wake(self: Arc<Self>) {}
+        }
+        let waker: Waker = Arc::new(Noop).into();
+        let mut cx = Context::from_waker(&waker);
+        let mut n = 0;
+        loop {
+            match futures_core::Stream::poll_next(std::pin::Pin::new(&mut stream), &mut cx) {
+                Poll::Ready(Some(t)) => {
+                    self.observe(side, t);
+                    n += 1;
+                }
+                Poll::Ready(None) => return n,
+                Poll::Pending => return n,
+            }
+        }
+    }
+
+    pub fn verdict(&self) -> StreamingVerdict {
+        PrefixBisimulationChecker {
+            left_seen: self.left.as_set(),
+            right_seen: self.right.as_set(),
+        }
+        .verdict()
+    }
+
+    pub fn window_sizes(&self) -> (usize, usize) {
+        (self.left.order.len(), self.right.order.len())
+    }
+}
+
+impl<S, L> PrefixBisimulationChecker<S, L>
+where
+    S: Eq + Hash + Clone,
+    L: Eq + Hash + Clone,
+{
+    /// Drains `rx` (blocking) into one side; returns observations consumed.
+    pub fn ingest(
+        &mut self,
+        side: Side,
+        rx: std::sync::mpsc::Receiver<ObservedTransition<S, L>>,
+    ) -> usize {
+        let mut n = 0;
+        for t in rx {
+            match side {
+                Side::Left => self.left_seen.insert(t),
+                Side::Right => self.right_seen.insert(t),
+            };
+            n += 1;
+        }
+        n
+    }
+}
+
 /// Minimal runtime abstraction used by the benchmark harness.
 pub trait ProcessRuntime {
     fn reset(&mut self);
@@ -647,5 +879,119 @@ mod tests {
         assert_eq!(report.executed_steps, 12);
         assert_eq!(report.final_state_cardinality, 3);
         assert_eq!(report.action_counts.get("tick"), Some(&12));
+    }
+
+    fn obs<'a>(
+        source: &'a str,
+        label: &'a str,
+        target: &'a str,
+    ) -> ObservedTransition<&'a str, &'a str> {
+        ObservedTransition {
+            source,
+            label,
+            target,
+        }
+    }
+
+    #[test]
+    fn windowed_checker_evicts_oldest_first() {
+        let mut w = WindowedPrefixChecker::new(2, EvictionPolicy::DropOldest);
+        w.observe(Side::Left, obs("a", "x", "b"));
+        w.observe(Side::Left, obs("b", "x", "c"));
+        w.observe(Side::Left, obs("c", "x", "d"));
+        assert_eq!(w.window_sizes(), (2, 0));
+        // Only the last two observations remain on the left.
+        let left = w.left.as_set();
+        assert!(!left.contains(&obs("a", "x", "b")));
+        assert!(left.contains(&obs("c", "x", "d")));
+        // A violation ages out once its evidence leaves the window.
+        w.observe(Side::Right, obs("b", "x", "c"));
+        w.observe(Side::Right, obs("c", "x", "d"));
+        assert_eq!(w.verdict().right_simulates_left, PrefixVerdict::HoldsSoFar);
+    }
+
+    #[test]
+    fn reservoir_keeps_bounded_sample_reproducibly() {
+        let feed = |w: &mut WindowedPrefixChecker<&str, &str>| {
+            for i in 0..50 {
+                let s = Box::leak(format!("s{i}").into_boxed_str()) as &str;
+                w.observe(Side::Left, obs(s, "tick", "t"));
+            }
+        };
+        let mut a = WindowedPrefixChecker::new(5, EvictionPolicy::Reservoir { seed: 7 });
+        let mut b = WindowedPrefixChecker::new(5, EvictionPolicy::Reservoir { seed: 7 });
+        feed(&mut a);
+        feed(&mut b);
+        assert_eq!(a.window_sizes(), (5, 0));
+        assert_eq!(a.left.as_set(), b.left.as_set());
+    }
+
+    #[test]
+    fn channel_ingestion_feeds_both_checkers() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(obs("born", "disease", "sick")).unwrap();
+        drop(tx);
+        let mut c = PrefixBisimulationChecker::default();
+        assert_eq!(c.ingest(Side::Left, rx), 1);
+        assert_eq!(c.verdict().right_simulates_left, PrefixVerdict::Violated);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(obs("born", "disease", "sick")).unwrap();
+        tx.send(obs("sick", "death", "dead")).unwrap();
+        drop(tx);
+        let mut w = WindowedPrefixChecker::new(10, EvictionPolicy::DropOldest);
+        assert_eq!(w.try_ingest(Side::Right, &rx), 2);
+        assert_eq!(w.window_sizes(), (0, 2));
+    }
+
+    #[test]
+    fn stream_ingestion_consumes_futures_stream() {
+        use futures_core::Stream;
+        use std::pin::Pin;
+        use std::sync::Arc;
+        use std::task::{Context, Poll, Wake, Waker};
+
+        struct VecStream<T> {
+            items: Vec<T>,
+        }
+        impl<T: Unpin> Stream for VecStream<T> {
+            type Item = T;
+            fn poll_next(
+                mut self: Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+            ) -> Poll<Option<Self::Item>> {
+                if self.items.is_empty() {
+                    Poll::Ready(None)
+                } else {
+                    Poll::Ready(Some(self.items.remove(0)))
+                }
+            }
+        }
+
+        struct Noop;
+        impl Wake for Noop {
+            fn wake(self: Arc<Self>) {}
+        }
+        fn block_on<F: std::future::Future>(f: F) -> F::Output {
+            let mut f = Box::pin(f);
+            let waker: Waker = Arc::new(Noop).into();
+            let mut cx = Context::from_waker(&waker);
+            // The test stream never pends; one drive loop suffices.
+            loop {
+                match f.as_mut().poll(&mut cx) {
+                    Poll::Ready(v) => return v,
+                    Poll::Pending => std::thread::yield_now(),
+                }
+            }
+        }
+
+        let mut w = WindowedPrefixChecker::new(10, EvictionPolicy::DropOldest);
+        let stream = VecStream {
+            items: vec![obs("born", "disease", "sick"), obs("sick", "death", "dead")],
+        };
+        let n = block_on(w.ingest_stream(Side::Left, stream));
+        assert_eq!(n, 2);
+        assert_eq!(w.window_sizes(), (2, 0));
+        assert_eq!(w.verdict().right_simulates_left, PrefixVerdict::Violated);
     }
 }

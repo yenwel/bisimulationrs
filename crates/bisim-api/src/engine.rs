@@ -56,7 +56,13 @@ impl Evaluator {
                     return None;
                 }
                 let g = graphs.iter().find(|g| g.component == leaf.component)?;
-                if g.transitions.iter().any(|t| t.rate.is_passive()) {
+                // One copy's chain only describes the leaf when its rates
+                // are static: passive rates need a partner, functional
+                // rates (#Name) read the global state and couple all copies.
+                if g.transitions
+                    .iter()
+                    .any(|t| t.rate.is_passive() || matches!(t.rate, Rate::Functional(_)))
+                {
                     return None;
                 }
                 let mut b = WltsBuilder::new();

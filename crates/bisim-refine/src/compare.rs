@@ -2,12 +2,13 @@ use std::hash::Hash;
 
 use bisim_core::{ComparisonVerdict, Formula, Lts, Semiring, StateId, Verdict, Wlts};
 
+use crate::fast::refine_fast;
 use crate::refine::{distinguishing_formula, refine};
 use crate::simulation::{simulation_preorder, simulation_witness};
 
 /// Minimal system bisimilar to `sys` (quotient by bisimilarity).
 pub fn minimise<L: Eq + Hash + Clone, W: Semiring>(sys: &Wlts<L, W>) -> Wlts<L, W> {
-    sys.quotient(refine(sys, None).partition())
+    sys.quotient(&refine_fast(sys, None))
 }
 
 /// Decides whether state `s` of `left` and state `t` of `right` are bisimilar.

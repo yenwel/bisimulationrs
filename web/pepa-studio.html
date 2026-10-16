@@ -235,7 +235,7 @@ input[type="text"].date { font: inherit; font-size: 13px; font-family: var(--fon
       </div>
 
       <div class="view" id="view-components" role="tabpanel" aria-labelledby="tab-components" hidden>
-        <p class="hint">Local derivative graph of each sequential component in the system equation. ⊤ marks a passive rate set by the cooperation partner.</p>
+        <p class="hint">Local derivative graph of each sequential component in the system equation. ⊤ marks a passive rate set by the cooperation partner; <code>#Name</code> is a functional rate over the current count in that derivative.</p>
         <div class="cards" id="component-cards"></div>
       </div>
 
@@ -635,7 +635,7 @@ function renderComponents() {
   host.innerHTML = analysis.components.map((c, i) => `<div class="card"><h3>${escapeHtml(c.component)}</h3><div class="graph small" id="comp-${i}"></div></div>`).join("");
   analysis.components.forEach((c, i) => {
     const nodes = c.states.map((name, k) => ({ id: k, label: name, initial: k === 0 }));
-    const edges = c.transitions.map((t) => ({ source: t.source, target: t.target, label: `${t.action} ${t.passive ? (t.rate === 1 ? "⊤" : fmtRate(t.rate) + "⊤") : fmtRate(t.rate)}` }));
+    const edges = c.transitions.map((t) => ({ source: t.source, target: t.target, label: `${t.action} ${t.functional ? t.functional : t.passive ? (t.rate === 1 ? "⊤" : fmtRate(t.rate) + "⊤") : fmtRate(t.rate)}` }));
     drawGraph(`comp-${i}`, nodes, edges, { spacing: 1.1 });
   });
 }

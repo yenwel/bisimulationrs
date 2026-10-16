@@ -2,8 +2,8 @@
 
 use bisim_core::{Lts, NamedBuilder, Real, StateId, Verdict, Wlts, WltsBuilder};
 use bisim_refine::{
-    bisimilar, compare, distinguishing_formula, minimise, refine, simulation_preorder,
-    simulation_witness,
+    GameBudget, bisimilar, compare, distinguishing_formula, game_bisimilar, minimise, refine,
+    refine_fast, simulation_preorder, simulation_witness,
 };
 
 /// xorshift64*: deterministic, dependency-free test randomness.
@@ -33,6 +33,48 @@ fn random_lts(rng: &mut Rng, states: u32, labels: u8, edges: usize) -> Lts<char>
         b.add_transition(s, l, t, true);
     }
     b.build()
+}
+
+fn random_weighted(rng: &mut Rng, states: u32, labels: u8, edges: usize) -> Wlts<char, Real> {
+    let mut b = WltsBuilder::new();
+    b.ensure_states(states as usize);
+    b.set_initial(StateId(0));
+    for _ in 0..edges {
+        let s = StateId(rng.below(states as u64) as u32);
+        let t = StateId(rng.below(states as u64) as u32);
+        let l = (b'a' + rng.below(labels as u64) as u8) as char;
+        // Small integer rates keep many collisions (hence real splitting).
+        b.add_transition(s, l, t, Real(1.0 + rng.below(3) as f64));
+    }
+    b.build()
+}
+
+#[test]
+fn fast_refinement_matches_naive() {
+    let mut rng = Rng(0xFA57_9EED);
+    for round in 0..300 {
+        let n = 1 + (round % 12) as u32;
+        let sys = random_lts(&mut rng, n, 3, (n as usize) * 2);
+        assert_eq!(
+            refine_fast(&sys, None),
+            refine(&sys, None).partition().clone(),
+            "bool round {round}"
+        );
+        let wsys = random_weighted(&mut rng, n, 3, (n as usize) * 2);
+        assert_eq!(
+            refine_fast(&wsys, None),
+            refine(&wsys, None).partition().clone(),
+            "weighted round {round}"
+        );
+    }
+    // With a non-trivial initial partition.
+    let mut rng = Rng(7);
+    let sys = random_lts(&mut rng, 8, 2, 20);
+    let init = bisim_core::Partition::from_keys((0..8).map(|i| i % 3));
+    assert_eq!(
+        refine_fast(&sys, Some(&init)),
+        refine(&sys, Some(&init)).partition().clone()
+    );
 }
 
 /// Bisimilarity as the greatest fixpoint on pairs: an independent oracle.
@@ -213,4 +255,30 @@ fn markovian_bisimulation_compares_class_sums() {
     };
     assert!(witness.holds(&left, left.initial().unwrap()));
     assert!(!witness.holds(&faster, faster.initial().unwrap()));
+}
+
+#[test]
+fn game_agrees_with_refinement_on_random_systems() {
+    let mut rng = Rng(0x6A6D_3E5A);
+    for round in 0..150 {
+        let n = 2 + (round % 5) as u32;
+        let sys = random_lts(&mut rng, n, 2, (n as usize) * 2);
+        let partition = refine(&sys, None).partition().clone();
+        for s in sys.states() {
+            for t in sys.states() {
+                let g = game_bisimilar(&sys, s, &sys, t, GameBudget::default());
+                assert_eq!(
+                    g.holds(),
+                    partition.same_block(s, t),
+                    "round {round}: pair {s:?} vs {t:?}"
+                );
+                if let Verdict::Violated { witness } = g {
+                    let union = sys.disjoint_union(&sys);
+                    let tt = StateId(t.0 + sys.num_states() as u32);
+                    assert!(witness.holds(&union, s));
+                    assert!(!witness.holds(&union, tt));
+                }
+            }
+        }
+    }
 }

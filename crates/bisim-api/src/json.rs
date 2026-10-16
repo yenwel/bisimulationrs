@@ -6,12 +6,17 @@
 //! ```json
 //! {"op": "check",     "source": "…"}
 //! {"op": "analyse",   "source": "…", "max_states": 20000}
+//! {"op": "analyse_prism", "source": "…", "max_states": 20000}
+//! {"op": "analyse_jani", "source": "…", "max_states": 20000}
 //! {"op": "transient", "source": "…", "times": [0, 1, 2]}
 //! {"op": "compare",   "a": "…", "b": "…"}
 //! {"op": "observe",   "source": "…", "timeline": {"start": "15/05/2026", "unit": "day"},
 //!                     "observations": [{"date": "12/06/2026", "state": "Flowering", "count": 9}]}
 //! {"op": "forecast",  "source": "…", "timeline": {…}, "state": "Flowering", "times": [0, 7, 14]}
 //! {"op": "fit",       "source": "…", "timeline": {…}, "observations": […], "params": ["veg_days"]}
+//! {"op": "query",     "source": "…", "query": "P=? [F<=10 s=0]"}
+//! {"op": "query_jani", "source": "…", "query": "P=? [F<=10 s=0]"}
+//! {"op": "fluid",     "source": "…", "times": [0, 7, 14], "dt": 0.01}
 //! ```
 //!
 //! Responses are `{"ok": …}` or `{"error": …}`, where an error is a list of
@@ -21,8 +26,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    Observation, Options, Timeline, analyse, check, check_observations, compare, fit_parameters,
-    forecast, transient,
+    Observation, Options, Timeline, analyse, analyse_jani, analyse_prism, check, check_jani,
+    check_observations, check_prism, compare, fit_parameters, fluid, forecast, query_jani,
+    query_prism, transient,
 };
 
 #[derive(Deserialize)]
@@ -31,7 +37,25 @@ enum Request {
     Check {
         source: String,
     },
+    #[serde(rename = "check_prism")]
+    CheckPrism {
+        source: String,
+    },
+    #[serde(rename = "check_jani")]
+    CheckJani {
+        source: String,
+    },
     Analyse {
+        source: String,
+        max_states: Option<usize>,
+    },
+    #[serde(rename = "analyse_prism")]
+    AnalysePrism {
+        source: String,
+        max_states: Option<usize>,
+    },
+    #[serde(rename = "analyse_jani")]
+    AnalyseJani {
         source: String,
         max_states: Option<usize>,
     },
@@ -66,6 +90,23 @@ enum Request {
         params: Vec<String>,
         max_states: Option<usize>,
     },
+    Query {
+        source: String,
+        query: String,
+        max_states: Option<usize>,
+    },
+    #[serde(rename = "query_jani")]
+    QueryJani {
+        source: String,
+        query: String,
+        max_states: Option<usize>,
+    },
+    Fluid {
+        source: String,
+        times: Vec<f64>,
+        dt: Option<f64>,
+        max_states: Option<usize>,
+    },
 }
 
 fn options(max_states: Option<usize>) -> Options {
@@ -89,8 +130,16 @@ pub fn handle_json(request: &str) -> String {
         Err(e) => json!({ "error": [{ "severity": "error", "line": 0, "column": 0,
                                      "message": format!("invalid request: {e}") }] }),
         Ok(Request::Check { source }) => json!({ "ok": check(&source) }),
+        Ok(Request::CheckPrism { source }) => json!({ "ok": check_prism(&source) }),
+        Ok(Request::CheckJani { source }) => json!({ "ok": check_jani(&source) }),
         Ok(Request::Analyse { source, max_states }) => {
             respond(analyse(&source, options(max_states)))
+        }
+        Ok(Request::AnalysePrism { source, max_states }) => {
+            respond(analyse_prism(&source, options(max_states)))
+        }
+        Ok(Request::AnalyseJani { source, max_states }) => {
+            respond(analyse_jani(&source, options(max_states)))
         }
         Ok(Request::Transient {
             source,
@@ -137,6 +186,27 @@ pub fn handle_json(request: &str) -> String {
             &timeline,
             options(max_states),
         )),
+        Ok(Request::Query {
+            source,
+            query,
+            max_states,
+        }) => respond(query_prism(&source, &query, options(max_states))),
+        Ok(Request::QueryJani {
+            source,
+            query,
+            max_states,
+        }) => respond(query_jani(&source, &query, options(max_states))),
+        Ok(Request::Fluid {
+            source,
+            times,
+            dt,
+            max_states,
+        }) => respond(fluid(
+            &source,
+            &times,
+            dt.unwrap_or(0.01),
+            options(max_states),
+        )),
     };
     response.to_string()
 }
@@ -153,10 +223,23 @@ mod tests {
         .unwrap();
         assert_eq!(r["ok"]["full"]["states"].as_array().unwrap().len(), 2);
 
+        let r: Value = serde_json::from_str(&handle_json(
+            r#"{"op":"analyse_prism","source":"dtmc module m x : [0..1] init 0; [] x=0 -> 1 : (x'=1); [] x=1 -> 1 : (x'=0); endmodule"}"#,
+        ))
+        .unwrap();
+        assert_eq!(r["ok"]["full"]["states"].as_array().unwrap().len(), 2);
+        assert_eq!(r["ok"]["vars"], serde_json::json!(["x"]));
+
         let r: Value =
             serde_json::from_str(&handle_json(r#"{"op":"check","source":"P = (a, r).P; P"}"#))
                 .unwrap();
         assert_eq!(r["ok"][0]["column"], 9);
+
+        let r: Value = serde_json::from_str(&handle_json(
+            r#"{"op":"check_prism","source":"dtmc module m x : [0..1] init 0; endmodule"}"#,
+        ))
+        .unwrap();
+        assert_eq!(r["ok"], serde_json::json!([]));
 
         let r: Value = serde_json::from_str(&handle_json(r#"{"op":"nope"}"#)).unwrap();
         assert!(

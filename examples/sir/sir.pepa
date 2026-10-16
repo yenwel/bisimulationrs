@@ -1,0 +1,24 @@
+// SIR outbreak among 9 susceptibles exposed to one chronic carrier, in
+// classic PEPA. Infection is cooperation on `infect`: susceptibles offer
+// it actively at `beta`, the carrier passively (`infty`), so the
+// susceptibles set the pace. Recovery interleaves on its own (note it is
+// *not* in the cooperation set: cooperating on it would block it, since
+// only SI performs it).
+//
+// Classic PEPA needs static roles: one array cannot mix active and
+// passive offers of one action (its apparent rate would be undefined),
+// so susceptibles become `SI` — which offers no `infect` — instead of a
+// shared `I`. The total pressure scales with susceptibles only
+// (#S * beta). For true mass action (#S * beta * #I), where individuals
+// change roles freely, see sir_fun.pepa (functional rates) and sir.prism.
+// Rates are per day.
+
+beta  = 0.3;   // infection attempts per susceptible per day
+gamma = 0.1;   // recovery rate per infected per day
+
+S = (infect, beta).SI;
+SI = (recover, gamma).R;
+R = 0;
+Carrier = (infect, infty).Carrier;
+
+S[9] <infect> Carrier

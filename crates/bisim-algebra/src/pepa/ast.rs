@@ -27,6 +27,12 @@ pub struct ParamId(pub u32);
 pub enum RateExpr {
     Lit(f64),
     Param(ParamId),
+    /// Species count `#{name}`: the number of copies currently in local
+    /// derivative `name`. This makes the rate *functional* (Bio-PEPA-style):
+    /// it is evaluated per global state during derivation (see
+    /// [`Rate::Functional`](super::rate::Rate)). Parameters and passive
+    /// weights cannot contain counts.
+    Count(String),
     /// Passive rate `w · ⊤`; the weight sets the split between alternatives.
     Passive(Box<RateExpr>),
     Add(Box<RateExpr>, Box<RateExpr>),

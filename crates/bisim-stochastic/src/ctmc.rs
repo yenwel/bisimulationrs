@@ -113,6 +113,48 @@ impl Ctmc {
         out
     }
 
+    /// Time-bounded reachability `P[F<=t target]` from `p0`: makes target
+    /// states absorbing, then reports the transient mass inside them at
+    /// time `t` (uniformisation, as in [`Self::transient`]).
+    pub fn reach_bounded(&self, p0: &[f64], targets: &[bool], t: f64, epsilon: f64) -> f64 {
+        assert_eq!(p0.len(), self.num_states());
+        assert_eq!(targets.len(), self.num_states());
+        let mut absorbing = self.clone();
+        for (i, is_target) in targets.iter().enumerate() {
+            if *is_target {
+                absorbing.rows[i].clear();
+                absorbing.exit[i] = 0.0;
+            }
+        }
+        absorbing
+            .transient(p0, t, epsilon)
+            .into_iter()
+            .zip(targets)
+            .filter(|(_, is_target)| **is_target)
+            .map(|(p, _)| p)
+            .sum()
+    }
+
+    /// The embedded jump chain as a stochastic matrix in sparse row form:
+    /// `P(s, t) = Q(s, t) / exit(s)` (0 when `exit(s) = 0`). Unbounded
+    /// CTMC reachability reduces to DTMC reachability on this chain
+    /// (see [`unbounded_reach`](super::unbounded_reach)).
+    pub fn embedded(&self) -> Vec<Vec<(usize, f64)>> {
+        self.rows
+            .iter()
+            .zip(&self.exit)
+            .enumerate()
+            .map(|(s, (row, e))| {
+                if *e == 0.0 {
+                    // Absorbing: DTMC self-loop.
+                    vec![(s, 1.0)]
+                } else {
+                    row.iter().map(|&(t, r)| (t, r / e)).collect()
+                }
+            })
+            .collect()
+    }
+
     /// Stationary distribution by power iteration on the uniformised chain.
     /// Meaningful for irreducible chains; otherwise it depends on the start.
     pub fn steady_state(&self, tolerance: f64, max_iterations: usize) -> Vec<f64> {

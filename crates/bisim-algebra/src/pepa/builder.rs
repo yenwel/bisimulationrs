@@ -1,4 +1,4 @@
-use std::ops::Add;
+use std::ops::{Add, Div, Mul, Sub};
 
 use super::ast::{Action, ModelTerm, ParamId, PepaModel, RateExpr, Seq, SeqId};
 use super::validate::PepaError;
@@ -110,6 +110,37 @@ pub fn passive() -> RateExpr {
 pub fn passive_weighted(weight: f64) -> RateExpr {
     RateExpr::Passive(Box::new(RateExpr::Lit(weight)))
 }
+
+/// A species count `#{derivative}` for functional (Bio-PEPA-style) rates:
+/// the number of copies currently in local derivative `derivative`,
+/// evaluated per global state during derivation.
+///
+/// ```
+/// use bisim_algebra::pepa::{RateExpr, act, count};
+///
+/// let beta = RateExpr::from(0.3);
+/// // (infect, beta * #I).… : mass-action infection pressure
+/// let prefix = act("infect", beta * count("I"));
+/// ```
+pub fn count(derivative: &str) -> RateExpr {
+    RateExpr::Count(derivative.to_owned())
+}
+
+macro_rules! rate_binop {
+    ($trait:ident, $method:ident, $variant:ident) => {
+        impl $trait for RateExpr {
+            type Output = RateExpr;
+            fn $method(self, rhs: RateExpr) -> RateExpr {
+                RateExpr::$variant(Box::new(self), Box::new(rhs))
+            }
+        }
+    };
+}
+
+rate_binop!(Add, add, Add);
+rate_binop!(Sub, sub, Sub);
+rate_binop!(Mul, mul, Mul);
+rate_binop!(Div, div, Div);
 
 /// The deadlocked process `0`, e.g. an absorbing state.
 pub fn stop<A>() -> Seq<A> {
