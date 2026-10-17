@@ -478,15 +478,9 @@ where
     where
         St: futures_core::Stream<Item = ObservedTransition<S, L>> + Unpin,
     {
-        use std::sync::Arc;
-        use std::task::{Context, Poll, Wake, Waker};
+        use std::task::{Context, Poll, Waker};
 
-        struct Noop;
-        impl Wake for Noop {
-            fn wake(self: Arc<Self>) {}
-        }
-        let waker: Waker = Arc::new(Noop).into();
-        let mut cx = Context::from_waker(&waker);
+        let mut cx = Context::from_waker(Waker::noop());
         let mut n = 0;
         loop {
             match futures_core::Stream::poll_next(std::pin::Pin::new(&mut stream), &mut cx) {
@@ -948,8 +942,7 @@ mod tests {
     fn stream_ingestion_consumes_futures_stream() {
         use futures_core::Stream;
         use std::pin::Pin;
-        use std::sync::Arc;
-        use std::task::{Context, Poll, Wake, Waker};
+        use std::task::{Context, Poll, Waker};
 
         struct VecStream<T> {
             items: Vec<T>,
@@ -968,14 +961,9 @@ mod tests {
             }
         }
 
-        struct Noop;
-        impl Wake for Noop {
-            fn wake(self: Arc<Self>) {}
-        }
         fn block_on<F: std::future::Future>(f: F) -> F::Output {
             let mut f = Box::pin(f);
-            let waker: Waker = Arc::new(Noop).into();
-            let mut cx = Context::from_waker(&waker);
+            let mut cx = Context::from_waker(Waker::noop());
             // The test stream never pends; one drive loop suffices.
             loop {
                 match f.as_mut().poll(&mut cx) {
