@@ -256,7 +256,7 @@ pub fn eval(expr: &Expr, state: &[i64], kinds: &[VarKind]) -> Option<Value> {
         }),
         Expr::Neg(e) => match eval(e, state, kinds)? {
             Value::Int(i) => Some(Value::Int(i.checked_neg()?)),
-            Value::Float(x) => Some(Value::Float(-x)).filter(|_| x.is_finite()),
+            Value::Float(x) => x.is_finite().then_some(Value::Float(-x)),
             Value::Bool(_) => None,
         },
         Expr::Not(e) => Some(Value::Bool(!eval(e, state, kinds)?.as_bool()?)),
