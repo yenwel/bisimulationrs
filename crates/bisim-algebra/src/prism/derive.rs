@@ -92,7 +92,13 @@ impl PrismModel {
         let mut queue = VecDeque::from([StateId(0)]);
         while let Some(s) = queue.pop_front() {
             let st = states[s.index()].clone();
-            for (label, weight, next) in self.transitions_from(&st, &kinds)? {
+            let mut moves = self.transitions_from(&st, &kinds)?;
+            if self.kind == ModelKind::Dtmc && moves.is_empty() {
+                // A deadlock state stays put with probability 1, as PRISM
+                // does by default (the rows of a DTMC must sum to 1).
+                moves.push((Act::Tau, 1.0, st.clone()));
+            }
+            for (label, weight, next) in moves {
                 let t = match ids.get(&next) {
                     Some(&t) => t,
                     None => {
@@ -183,7 +189,7 @@ impl PrismModel {
                 }
             }
         }
-        for label in labels {
+        'labels: for label in labels {
             let mut per_module: Vec<Vec<(&Command, &Update)>> = Vec::new();
             for m in &self.modules {
                 if !m
@@ -208,8 +214,7 @@ impl PrismModel {
                 }
                 if choices.is_empty() {
                     // One partner cannot move: the synchronisation is blocked.
-                    per_module.clear();
-                    break;
+                    continue 'labels;
                 }
                 per_module.push(choices);
             }
@@ -232,6 +237,11 @@ impl PrismModel {
                 }
                 if rate == 0.0 {
                     continue;
+                }
+                if !rate.is_finite() {
+                    return Err(PrismError::Arithmetic(format!(
+                        "synchronised rate of [{label}] overflows"
+                    )));
                 }
                 out.push((Act::Act(label.clone()), rate, next));
             }
@@ -583,6 +593,106 @@ mod tests {
     }
 
     #[test]
+    fn blocked_synchronisation_has_no_transition() {
+        // After the joint tick both guards are false: nothing may fire
+        // (no phantom rate-1 self-loop), so the final state is a deadlock.
+        let d = parse_prism(TWO_TICK).unwrap().derive().unwrap();
+        assert_eq!(d.num_states(), 2);
+        assert_eq!(d.lts.num_transitions(), 1);
+        // A label only one module offers, whose guard is false, is not a
+        // synchronisation either.
+        let d = parse_prism(
+            "ctmc
+             module a x : [0..1] init 0; [go] x=1 -> 1.0 : (x'=0); endmodule
+             module b y : [0..1] init 0; [go] y=0 -> 1.0 : (y'=0); endmodule",
+        )
+        .unwrap()
+        .derive()
+        .unwrap();
+        assert_eq!(d.num_states(), 1);
+        assert_eq!(d.lts.num_transitions(), 0);
+    }
+
+    #[test]
+    fn modules_cannot_write_each_others_variables() {
+        let e = parse_prism(
+            "ctmc
+             module a x : [0..1] init 0; y : [0..1] init 0; [go] x=0 -> 1 : (y'=1); endmodule
+             module b z : [0..1] init 0; [go] z=0 -> 1 : (y'=0); endmodule",
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("belongs to another module"), "{e}");
+        // Reading another module's variable is fine.
+        assert!(
+            parse_prism(
+                "ctmc
+                 module a x : [0..1] init 0; [] x=0 -> 1 : (x'=1); endmodule
+                 module b y : [0..1] init 0; [] x=1 & y=0 -> 1 : (y'=1); endmodule"
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn small_arithmetic_corners_follow_prism() {
+        // `-0.0 = 0`: guards compare numbers, not bit patterns.
+        let d = parse_prism(
+            "ctmc module m s : [0..1] init 0; [] s*(-1.0) = 0 -> 1 : (s'=1); endmodule",
+        )
+        .unwrap()
+        .derive()
+        .unwrap();
+        assert_eq!(d.num_states(), 2);
+        // `pow` of integers is an integer, so it can be assigned to one.
+        let d =
+            parse_prism("ctmc module m s : [0..8] init 1; [] s=1 -> 1 : (s'=pow(2,3)); endmodule")
+                .unwrap()
+                .derive()
+                .unwrap();
+        assert_eq!(d.num_states(), 2);
+        // A DTMC deadlock stays put with probability 1.
+        let d = parse_prism("dtmc module m s : [0..1] init 0; [] s=0 -> 1 : (s'=1); endmodule")
+            .unwrap()
+            .derive()
+            .unwrap();
+        let last = d.lts.states().last().unwrap();
+        assert_eq!(d.lts.successors(last).len(), 1);
+        assert_eq!(d.lts.successors(last)[0].weight.value(), 1.0);
+        assert!(rows_sum_to_one(&d));
+    }
+
+    fn rows_sum_to_one(d: &super::PrismDerived) -> bool {
+        d.lts.states().all(|s| {
+            (d.lts
+                .successors(s)
+                .iter()
+                .map(|e| e.weight.value())
+                .sum::<f64>()
+                - 1.0)
+                .abs()
+                < 1e-12
+        })
+    }
+
+    #[test]
+    fn division_is_real_division() {
+        let d = parse_prism(
+            "dtmc
+             module m s : [0..1] init 0;
+               [] s=0 -> 1/2 : (s'=1) + 1/2 : (s'=0);
+               [] s=1 -> 1 : (s'=1);
+             endmodule",
+        )
+        .unwrap()
+        .derive()
+        .unwrap();
+        assert_eq!(d.num_states(), 2);
+        let init = d.lts.initial().unwrap();
+        let total: f64 = rates(&d.lts, init).iter().map(|(_, w, _)| w).sum();
+        assert!((total - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
     fn system_block_validates_modules() {
         let e = parse_prism(&format!("{TWO_TICK} system a || c endsystem")).unwrap_err();
         assert!(matches!(e, PrismError::Unknown(_)));
@@ -590,5 +700,56 @@ mod tests {
         assert!(matches!(e, PrismError::Duplicate(_)));
         let e = parse_prism(&format!("{TWO_TICK} system a[b=c] || b endsystem")).unwrap_err();
         assert!(e.to_string().contains("renaming"));
+    }
+}
+
+#[cfg(test)]
+mod depth_tests {
+    use super::super::parse::parse_prism;
+
+    #[test]
+    fn deeply_nested_input_is_an_error_not_a_stack_overflow() {
+        let n = 10_000;
+        let src = format!(
+            "ctmc module m s : [0..1] init 0; [] s={}0{} -> 1 : (s'=1); endmodule",
+            "(".repeat(n),
+            ")".repeat(n)
+        );
+        let e = parse_prism(&src).unwrap_err();
+        assert!(e.to_string().contains("nested too deeply"), "{e}");
+        let nots = format!(
+            "ctmc module m s : [0..1] init 0; [] {}true -> 1 : (s'=1); endmodule",
+            "!".repeat(n)
+        );
+        assert!(parse_prism(&nots).is_err());
+        let sum = vec!["1"; 200_000].join(" + ");
+        let long = format!("ctmc module m s : [0..1] init 0; [] s={sum} -> 1 : (s'=1); endmodule");
+        let e = parse_prism(&long).unwrap_err();
+        assert!(e.to_string().contains("too long"), "{e}");
+    }
+}
+
+#[cfg(test)]
+mod formula_tests {
+    use super::super::parse::parse_prism;
+
+    #[test]
+    fn exponentially_expanding_formulas_are_an_error_not_a_hang() {
+        let mut src = String::from("ctmc formula f0 = s;\n");
+        for i in 1..40 {
+            src.push_str(&format!("formula f{i} = f{} + f{};\n", i - 1, i - 1));
+        }
+        src.push_str("module m s : [0..1] init 0; [] f39 = 0 -> 1 : (s'=1); endmodule");
+        let start = std::time::Instant::now();
+        let e = parse_prism(&src).unwrap_err();
+        assert!(e.to_string().contains("nested references"), "{e}");
+        assert!(start.elapsed().as_secs() < 10);
+        // Moderate sharing still works.
+        let mut ok = String::from("ctmc formula f0 = s;\n");
+        for i in 1..10 {
+            ok.push_str(&format!("formula f{i} = f{} + f{};\n", i - 1, i - 1));
+        }
+        ok.push_str("module m s : [0..1] init 0; [] f9 = 0 -> 1 : (s'=1); endmodule");
+        assert!(parse_prism(&ok).is_ok());
     }
 }

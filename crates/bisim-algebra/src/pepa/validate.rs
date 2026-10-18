@@ -7,6 +7,7 @@ use super::rate::Rate;
 
 /// Errors raised when building, parsing, validating or deriving a model.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum PepaError {
     Parse(ParseError),
     MissingSystem,

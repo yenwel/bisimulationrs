@@ -6,6 +6,7 @@ use crate::pepa::ParseError;
 
 /// Errors raised when parsing, resolving or deriving a PRISM model.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum PrismError {
     Parse(ParseError),
     /// Two constants, formulas, modules or variables share a name.
@@ -279,15 +280,10 @@ pub fn eval(expr: &Expr, state: &[i64], kinds: &[VarKind]) -> Option<Value> {
             |x, y| x * y,
         ),
         Expr::Div(a, b) => {
+            // PRISM and JANI `/` is always real division (`1/2` is 0.5).
             let (x, y) = (eval(a, state, kinds)?, eval(b, state, kinds)?);
-            match (x, y) {
-                (Value::Int(x), Value::Int(y)) => Some(Value::Int(x.checked_div(y)?)),
-                _ => {
-                    let (x, y) = (x.as_num()?, y.as_num()?);
-                    let v = x / y;
-                    v.is_finite().then_some(Value::Float(v))
-                }
-            }
+            let v = x.as_num()? / y.as_num()?;
+            v.is_finite().then_some(Value::Float(v))
         }
         Expr::Mod(a, b) => {
             let (x, y) = (eval(a, state, kinds)?, eval(b, state, kinds)?);
@@ -301,11 +297,15 @@ pub fn eval(expr: &Expr, state: &[i64], kinds: &[VarKind]) -> Option<Value> {
             }
         }
         Expr::Pow(a, b) => {
-            let (x, y) = (
-                eval(a, state, kinds)?.as_num()?,
-                eval(b, state, kinds)?.as_num()?,
-            );
-            let v = x.powf(y);
+            let (x, y) = (eval(a, state, kinds)?, eval(b, state, kinds)?);
+            // As in PRISM, an integer to a non-negative integer power is
+            // an integer.
+            if let (Value::Int(base), Value::Int(exp)) = (x, y) {
+                if let Some(p) = u32::try_from(exp).ok().and_then(|e| base.checked_pow(e)) {
+                    return Some(Value::Int(p));
+                }
+            }
+            let v = x.as_num()?.powf(y.as_num()?);
             v.is_finite().then_some(Value::Float(v))
         }
         Expr::Min(es) | Expr::Max(es) => {
@@ -411,7 +411,9 @@ fn cmp(x: Value, y: Value, keep: impl Fn(std::cmp::Ordering) -> bool) -> Option<
         }
         (x, y) => {
             let (x, y) = (x.as_num()?, y.as_num()?);
-            let o = x.total_cmp(&y);
+            // Not `total_cmp`, which orders -0.0 before 0.0; values are
+            // finite here, so `partial_cmp` always answers.
+            let o = x.partial_cmp(&y)?;
             Some(Value::Bool(keep(o)))
         }
     }
@@ -430,9 +432,9 @@ mod tests {
         let kinds = [VarKind::Int];
         let e = Expr::Add(Box::new(Expr::Var(0)), Box::new(Expr::Int(1)));
         assert_eq!(eval(&e, &v(41), &kinds), Some(Value::Int(42)));
-        // Integer division truncates; mixed arithmetic widens to float.
+        // `/` is real division, also on integers; mixed arithmetic widens.
         let d = Expr::Div(Box::new(Expr::Int(7)), Box::new(Expr::Int(2)));
-        assert_eq!(eval(&d, &[], &[]), Some(Value::Int(3)));
+        assert_eq!(eval(&d, &[], &[]), Some(Value::Float(3.5)));
         assert_eq!(
             eval(
                 &Expr::Div(Box::new(Expr::Int(7)), Box::new(Expr::Int(0))),

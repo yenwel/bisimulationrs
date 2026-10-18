@@ -143,7 +143,16 @@ impl Rate {
         {
             unreachable!("functional rates must be concretized before cooperation");
         }
-        let share = (r1.value() / apparent1.value()) * (r2.value() / apparent2.value());
+        // A rate never exceeds its apparent rate, so a zero apparent rate
+        // (e.g. a functional rate at count 0) means a zero share, not 0/0.
+        let ratio = |r: &Rate, apparent: &Rate| {
+            if apparent.value() == 0.0 {
+                0.0
+            } else {
+                r.value() / apparent.value()
+            }
+        };
+        let share = ratio(&r1, &apparent1) * ratio(&r2, &apparent2);
         apparent1.min(apparent2).scale(share)
     }
 }

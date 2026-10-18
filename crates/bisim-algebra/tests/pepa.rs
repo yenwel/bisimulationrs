@@ -372,3 +372,147 @@ fn fluid_drift_matches_hand_computed_flows() {
         .fluid_drift(&[1.0]);
     assert!(matches!(e, Err(PepaError::FluidRequiresArrays { .. })));
 }
+
+#[test]
+fn zero_functional_rate_in_cooperation_is_zero_not_nan() {
+    // No infected yet: each susceptible's infect rate is 0.3 * #I = 0, so
+    // the apparent rate is 0 and the cooperation share would be 0/0.
+    let m = parse_pepa(
+        "S = (infect, 0.3 * #I).I; I = (recover, 0.1).S;
+         Env = (infect, 2).Env2; Env2 = (reset, 1).Env;
+         S[3] <infect> Env[1]",
+    )
+    .unwrap();
+    let d = m.derive().unwrap();
+    let init = d.lts.initial().unwrap();
+    assert_eq!(total_rate(&d.lts, init, "infect"), 0.0);
+    assert!(
+        d.lts
+            .transitions()
+            .all(|(_, _, _, w)| w.value().is_finite())
+    );
+
+    let f = m.fluid_model().unwrap();
+    let dx = f.fluid_drift(&f.initial_counts()).unwrap();
+    assert!(dx.iter().all(|v| v.is_finite()), "drift {dx:?}");
+    assert!(dx.iter().all(|v| *v == 0.0), "nothing can move: {dx:?}");
+}
+
+#[test]
+fn fluid_drift_counts_self_loops_in_cooperation() {
+    // `Env` offers `infect` at 2 and every S shares it: the cooperation
+    // runs at min(10 * 0.5, 2) = 2 even though Env's own move is a
+    // self-loop, so dS = -2 (not 0).
+    let m = parse_pepa(
+        "S = (infect, 0.5).I; I = (recover, 0.1).S;
+         Env = (infect, 2).Env;
+         S[10] <infect> Env[1]",
+    )
+    .unwrap();
+    let f = m.fluid_model().unwrap();
+    let slots = f.fluid_slots();
+    let x = f.initial_counts();
+    let dx = f.fluid_drift(&x).unwrap();
+    let s = slots.iter().position(|(_, d)| d == "S").unwrap();
+    let i = slots.iter().position(|(_, d)| d == "I").unwrap();
+    assert!((dx[s] + 2.0).abs() < 1e-12, "{slots:?} {dx:?}");
+    assert!((dx[i] - 2.0).abs() < 1e-12, "{slots:?} {dx:?}");
+    // The enumerated model agrees: infect fires at total rate 2.
+    let d = m.derive().unwrap();
+    let rate = total_rate(&d.lts, d.lts.initial().unwrap(), "infect");
+    assert!((rate - 2.0).abs() < 1e-12, "{rate}");
+}
+
+#[test]
+fn zero_rate_moves_do_not_create_states() {
+    // No infected, so `infect` has rate 0 in the only state: one state.
+    let d = parse_pepa(
+        "beta = 0.3;
+         S = (infect, beta * #I).I; I = (recover, 0.1).S;
+         S[3]",
+    )
+    .unwrap()
+    .derive()
+    .unwrap();
+    assert_eq!(d.num_states(), 1);
+    assert_eq!(d.lts.num_transitions(), 0);
+}
+
+#[test]
+fn parameters_are_defined_before_use_and_only_once() {
+    // A forward reference used to evaluate to 0.
+    let e = parse_pepa("a = b + 1; b = 5; P = (x, a).P; P").unwrap_err();
+    assert!(e.to_string().contains("unknown rate parameter `b`"), "{e}");
+    let m = parse_pepa("b = 5; a = b + 1; P = (x, a).P; P").unwrap();
+    assert!(m.to_string().contains("a = 6"), "{m}");
+    let e = parse_pepa("r = 1; r = 2; P = (x, r).P; P").unwrap_err();
+    assert!(e.to_string().contains("more than once"), "{e}");
+    let e = parse_pepa("P = (x, 1).P; P = (y, 1).P; P").unwrap_err();
+    assert!(e.to_string().contains("more than once"), "{e}");
+}
+
+#[test]
+fn species_counts_see_through_aliases() {
+    // `P = Q;` is the same derivative as Q: `#P` counts it (it used to
+    // count 0, so `inf` never fired).
+    let m = parse_pepa("Q = (a, 1).Q; P = Q; S = (inf, #P).S; P[2] || S").unwrap();
+    let d = m.derive().unwrap();
+    let init = d.lts.initial().unwrap();
+    assert!((total_rate(&d.lts, init, "inf") - 2.0).abs() < 1e-12);
+    // The same through the fluid drift (counts are continuous there).
+    let f = parse_pepa("Q = (a, 1).Q; P = Q; S = (inf, #P).S2; S2 = (back, 1).S; P[2] || S[1]")
+        .unwrap()
+        .fluid_model()
+        .unwrap();
+    let slots = f.fluid_slots();
+    let dx = f.fluid_drift(&f.initial_counts()).unwrap();
+    let s = slots.iter().position(|(_, d)| d == "S").unwrap();
+    assert!((dx[s] + 2.0).abs() < 1e-12, "{slots:?} {dx:?}");
+}
+
+#[test]
+fn huge_arrays_cannot_overflow_counts() {
+    assert!(parse_pepa("P = (a, 1).P; P[4294967295]").is_err());
+    let m = parse_pepa(
+        "P = (a, 1).P; S = (b, #P).S; P[1000000000] || P[1000000000] || P[1000000000] || S",
+    )
+    .unwrap();
+    let f = m.fluid_model().unwrap();
+    assert!(f.initial_counts().iter().all(|c| c.is_finite()));
+}
+
+#[test]
+fn deeply_nested_input_is_an_error_not_a_stack_overflow() {
+    let n = 10_000;
+    let parens = format!("P = {}0{};\nP", "(".repeat(n), ")".repeat(n));
+    let e = parse_pepa(&parens).unwrap_err();
+    assert!(e.to_string().contains("nested too deeply"), "{e}");
+    let rate = format!("P = (a, {}1{}).P; P", "(".repeat(n), ")".repeat(n));
+    assert!(parse_pepa(&rate).is_err());
+    let prefixes = format!("P = {}P; P", "(a, 1).".repeat(n));
+    assert!(parse_pepa(&prefixes).is_err());
+    // Reasonable nesting still parses.
+    assert!(parse_pepa("P = (((((0))))); P").is_ok());
+}
+
+#[test]
+fn long_operator_chains_are_an_error_not_a_stack_overflow() {
+    let n = 200_000;
+    // A rate `1 + 1 + … + 1` is a left-leaning tree n levels deep.
+    let sum = vec!["1"; n].join(" + ");
+    let e = parse_pepa(&format!("P = (a, {sum}).P; P")).unwrap_err();
+    assert!(e.to_string().contains("too long"), "{e}");
+    let coop = vec!["P"; n].join(" || ");
+    assert!(parse_pepa(&format!("P = (a, 1).P; {coop}")).is_err());
+    // A few hundred terms are fine.
+    let ok = vec!["1"; 300].join(" + ");
+    assert!(parse_pepa(&format!("P = (a, {ok}).P; P")).is_ok());
+}
+
+#[test]
+fn negative_parameters_print_in_a_form_that_parses() {
+    let m = parse_pepa("d = 0 - 1; P = (a, 2).P; P").unwrap();
+    let printed = m.to_string();
+    assert!(printed.contains("d = 0 - 1;"), "{printed}");
+    assert_eq!(parse_pepa(&printed).unwrap(), m);
+}

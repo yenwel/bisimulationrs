@@ -21,9 +21,9 @@
 //!
 //! Not supported (explicit errors): `mdp`, rewards, `init`/`system`
 //! blocks, renaming, undefined-behaviour corners (out-of-bounds updates,
-//! overlapping DTMC guards). Integer `/` truncates toward zero and `%`
-//! is a remainder, matching Rust rather than PRISM's exact numerics —
-//! documented where it matters.
+//! overlapping DTMC guards). `/` is real division (`1/2` is 0.5), as in
+//! PRISM and JANI; `%` is a remainder, matching Rust rather than PRISM's
+//! exact numerics — documented where it matters.
 //!
 //! [`PrismModel::derive`] enumerates the reachable valuations into a
 //! [`Wlts`](bisim_core::Wlts) with probabilities/rates as weights, ready

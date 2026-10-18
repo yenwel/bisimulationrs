@@ -10,7 +10,12 @@ use super::ast::{Action, ActionSet, ModelTerm, PepaModel, RateExpr, Seq};
 impl<A: Action> fmt::Display for PepaModel<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (name, value) in &self.params {
-            writeln!(f, "{name} = {value};")?;
+            // The grammar has no negative literal: `0 - x` reads back.
+            if *value < 0.0 {
+                writeln!(f, "{name} = 0 - {};", -value)?;
+            } else {
+                writeln!(f, "{name} = {value};")?;
+            }
         }
         for (name, def) in &self.seqs {
             if let Some(def) = def {

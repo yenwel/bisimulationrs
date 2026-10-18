@@ -16,7 +16,13 @@ use super::ast::{
 /// Parses and resolves a PRISM model (`dtmc` or `ctmc`).
 pub fn parse_prism(src: &str) -> Result<PrismModel, PrismError> {
     let tokens = lex(src)?;
-    let raw = Parser { tokens, pos: 0 }.file()?;
+    let raw = Parser {
+        tokens,
+        pos: 0,
+        depth: 0,
+        tree: 0,
+    }
+    .file()?;
     resolve(raw)
 }
 
@@ -27,7 +33,13 @@ pub fn parse_prism(src: &str) -> Result<PrismModel, PrismError> {
 /// model's variables (constants and formulas must be inlined by hand).
 pub fn parse_query(model: &PrismModel, src: &str) -> Result<Query, PrismError> {
     let tokens = lex(src)?;
-    let raw = Parser { tokens, pos: 0 }.query()?;
+    let raw = Parser {
+        tokens,
+        pos: 0,
+        depth: 0,
+        tree: 0,
+    }
+    .query()?;
     let vars: HashMap<String, usize> = model
         .vars
         .iter()
@@ -384,7 +396,22 @@ struct RawFile {
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    /// Current nesting of recursive rules, bounded by [`MAX_DEPTH`].
+    depth: usize,
+    /// Depth of the tree built so far in the current scope: nesting plus
+    /// the length of left-nested operator chains, bounded by [`MAX_TREE`].
+    tree: usize,
 }
+
+/// Deepest nesting of parentheses and prefixes accepted. Later phases and
+/// the destructors recurse on the tree too, so unbounded input would
+/// overflow the stack and abort the process.
+const MAX_DEPTH: usize = 200;
+
+/// Deepest syntax tree accepted, counting every operator of a chain such
+/// as `1 + 1 + … + 1`, which parses to a left-leaning tree as deep as the
+/// chain is long. Resolving, printing and dropping it recurse on that depth.
+const MAX_TREE: usize = 2_000;
 
 impl Parser {
     fn peek(&self) -> &Tok {
@@ -398,6 +425,15 @@ impl Parser {
     fn here(&self) -> Pos {
         let t = &self.tokens[self.pos];
         (t.line, t.column)
+    }
+
+    /// Accounts for one more level of the tree under construction.
+    fn grow(&mut self) -> Result<(), ParseError> {
+        self.tree += 1;
+        if self.tree > MAX_TREE {
+            return self.error("expression is too long or nested too deeply");
+        }
+        Ok(())
     }
 
     fn error<T>(&self, msg: &str) -> Result<T, ParseError> {
@@ -609,6 +645,7 @@ impl Parser {
 
     fn system_decl(&mut self) -> Result<RawSysExpr, ParseError> {
         assert!(self.keyword("system"));
+        self.tree = 0;
         let expr = self.sys_expr()?;
         if !self.keyword("endsystem") {
             return self.error("expected `endsystem`");
@@ -621,6 +658,7 @@ impl Parser {
         let mut left = self.sys_factor()?;
         loop {
             if self.eat("||") {
+                self.grow()?;
                 left = RawSysExpr::Par(Box::new(left), Box::new(self.sys_factor()?));
             } else if self.eat("|") {
                 // Restricted synchronisation `|[a, b]|`.
@@ -636,6 +674,7 @@ impl Parser {
                 }
                 self.expect("]")?;
                 self.expect("|")?;
+                self.grow()?;
                 left = RawSysExpr::Sync(Box::new(left), Box::new(self.sys_factor()?), labels);
             } else {
                 return Ok(left);
@@ -644,6 +683,18 @@ impl Parser {
     }
 
     fn sys_factor(&mut self) -> Result<RawSysExpr, ParseError> {
+        if self.depth >= MAX_DEPTH {
+            return self.error("expression is nested too deeply");
+        }
+        self.depth += 1;
+        let base = self.tree;
+        let result = self.grow().and_then(|()| self.sys_factor_inner());
+        self.tree = base;
+        self.depth -= 1;
+        result
+    }
+
+    fn sys_factor_inner(&mut self) -> Result<RawSysExpr, ParseError> {
         if self.eat("(") {
             let e = self.sys_expr()?;
             self.expect(")")?;
@@ -755,6 +806,18 @@ impl Parser {
 
     // cond := or ('?' expr ':' expr)?
     fn cond(&mut self) -> Result<RawExpr, ParseError> {
+        if self.depth >= MAX_DEPTH {
+            return self.error("expression is nested too deeply");
+        }
+        self.depth += 1;
+        let base = self.tree;
+        let result = self.grow().and_then(|()| self.cond_inner());
+        self.tree = base;
+        self.depth -= 1;
+        result
+    }
+
+    fn cond_inner(&mut self) -> Result<RawExpr, ParseError> {
         let c = self.or()?;
         if self.eat("?") {
             let a = self.expr()?;
@@ -769,6 +832,7 @@ impl Parser {
     fn or(&mut self) -> Result<RawExpr, ParseError> {
         let mut left = self.and()?;
         while self.eat("|") || self.eat("||") {
+            self.grow()?;
             left = RawExpr::Bin(BinOp::Or, Box::new(left), Box::new(self.and()?));
         }
         Ok(left)
@@ -778,6 +842,7 @@ impl Parser {
     fn and(&mut self) -> Result<RawExpr, ParseError> {
         let mut left = self.eq()?;
         while self.eat("&") || self.eat("&&") {
+            self.grow()?;
             left = RawExpr::Bin(BinOp::And, Box::new(left), Box::new(self.eq()?));
         }
         Ok(left)
@@ -797,6 +862,7 @@ impl Parser {
             } else {
                 return Ok(left);
             };
+            self.grow()?;
             left = RawExpr::Bin(op, Box::new(left), Box::new(self.cmp()?));
         }
     }
@@ -816,6 +882,7 @@ impl Parser {
             } else {
                 return Ok(left);
             };
+            self.grow()?;
             left = RawExpr::Bin(op, Box::new(left), Box::new(self.add()?));
         }
     }
@@ -831,6 +898,7 @@ impl Parser {
             } else {
                 return Ok(left);
             };
+            self.grow()?;
             left = RawExpr::Bin(op, Box::new(left), Box::new(self.mul()?));
         }
     }
@@ -851,12 +919,25 @@ impl Parser {
             } else {
                 return Ok(left);
             };
+            self.grow()?;
             left = RawExpr::Bin(op, Box::new(left), Box::new(self.unary()?));
         }
     }
 
     // unary := '-' unary | '!' unary | primary
     fn unary(&mut self) -> Result<RawExpr, ParseError> {
+        if self.depth >= MAX_DEPTH {
+            return self.error("expression is nested too deeply");
+        }
+        self.depth += 1;
+        let base = self.tree;
+        let result = self.grow().and_then(|()| self.unary_inner());
+        self.tree = base;
+        self.depth -= 1;
+        result
+    }
+
+    fn unary_inner(&mut self) -> Result<RawExpr, ParseError> {
         if self.eat("-") {
             return Ok(RawExpr::Neg(Box::new(self.unary()?)));
         }
@@ -1078,7 +1159,14 @@ struct Ctx<'a> {
     vars: &'a HashMap<String, usize>,
     consts: &'a HashMap<String, Value>,
     formulas: &'a HashMap<String, RawExpr>,
+    /// Formula expansions made since the current expression started.
+    expansions: std::cell::Cell<usize>,
 }
+
+/// Most formula expansions in one expression. Formulas are inlined, so
+/// `f1 = f0 + f0; f2 = f1 + f1; …` doubles per level: 22 levels in 600
+/// bytes took seconds, a few more exhaust memory.
+const MAX_EXPANSIONS: usize = 200_000;
 
 /// Resolves an open expression: folds constants, expands formulas,
 /// replaces variables by indices.
@@ -1101,6 +1189,15 @@ fn resolve_expr(expr: &RawExpr, ctx: &Ctx, stack: &mut Vec<String>) -> Result<Ex
             if let Some(body) = ctx.formulas.get(n) {
                 if stack.contains(n) {
                     return Err(PrismError::CyclicFormula(n.clone()));
+                }
+                if stack.is_empty() {
+                    ctx.expansions.set(0);
+                }
+                ctx.expansions.set(ctx.expansions.get() + 1);
+                if ctx.expansions.get() > MAX_EXPANSIONS {
+                    return Err(PrismError::Type(format!(
+                        "formula `{n}` expands to more than {MAX_EXPANSIONS} nested references"
+                    )));
                 }
                 stack.push(n.clone());
                 let e = resolve_expr(body, ctx, stack)?;
@@ -1246,6 +1343,7 @@ fn resolve(raw: RawFile) -> Result<PrismModel, PrismError> {
         vars: &var_ids,
         consts: &consts,
         formulas: &formulas,
+        expansions: std::cell::Cell::new(0),
     };
     let mut modules = Vec::new();
     for m in &raw.modules {
@@ -1262,6 +1360,15 @@ fn resolve(raw: RawFile) -> Result<PrismModel, PrismError> {
                     let idx = *var_ids
                         .get(&a.var)
                         .ok_or_else(|| PrismError::Unknown(format!("{} (assigned here)", a.var)))?;
+                    // A module may read other modules' variables, but only
+                    // write its own (as in PRISM); otherwise synchronised
+                    // writers silently overwrite each other.
+                    if !m.vars.iter().any(|v| v.name == a.var) {
+                        return Err(PrismError::Type(format!(
+                            "module `{}` assigns `{}`, which belongs to another module",
+                            m.name, a.var
+                        )));
+                    }
                     if !seen.insert(idx) {
                         return Err(PrismError::Type(format!(
                             "`{}` is assigned twice in one update",

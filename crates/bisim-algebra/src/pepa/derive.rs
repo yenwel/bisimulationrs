@@ -122,6 +122,9 @@ impl<A: Action> DerivedModel<A> {
 struct Local<A> {
     nodes: Vec<Node<A>>,
     roots: Vec<u32>,
+    /// Constants defined as another constant (`P = Q;`): their name and the
+    /// derivative they stand for, which is named after the target.
+    aliases: Vec<(String, u32)>,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +139,7 @@ impl<A: Action> Local<A> {
         let mut local = Local {
             nodes: Vec::new(),
             roots: vec![u32::MAX; model.seqs.len()],
+            aliases: Vec::new(),
         };
         let mut names = Vec::new();
         for (i, (name, def)) in model.seqs.iter().enumerate() {
@@ -143,6 +147,14 @@ impl<A: Action> Local<A> {
                 let root = local.add(model, name, def, &mut names)?;
                 local.roots[i] = root;
                 names[root as usize] = name.clone();
+            }
+        }
+        for (i, (name, def)) in model.seqs.iter().enumerate() {
+            if def.is_some() {
+                let target = local.canon(local.roots[i]);
+                if target != local.roots[i] {
+                    local.aliases.push((name.clone(), target));
+                }
             }
         }
         Ok((local, names))
@@ -282,21 +294,32 @@ struct Engine<'a, A> {
 }
 
 impl<A: Action> Engine<'_, A> {
+    /// Whether derivative `node` is the one called `name`, also under the
+    /// name of an alias for it.
+    fn is_named(&self, node: u32, name: &str) -> bool {
+        self.names[node as usize] == name
+            || self
+                .local
+                .aliases
+                .iter()
+                .any(|(alias, target)| *target == node && alias == name)
+    }
+
     /// Number of copies currently in local derivative `name`, over all
     /// leaves of the system equation.
     fn count(&self, v: &[u32], name: &str) -> f64 {
-        let mut n = 0u32;
+        let mut n = 0u64;
         for leaf in &self.layout.leaves {
             match leaf {
                 Leaf::Single { offset } => {
-                    if self.names[v[*offset] as usize] == name {
+                    if self.is_named(v[*offset], name) {
                         n += 1;
                     }
                 }
                 Leaf::Array { offset, nodes, .. } => {
                     for (slot, node) in nodes.iter().enumerate() {
-                        if self.names[*node as usize] == name {
-                            n += v[offset + slot];
+                        if self.is_named(*node, name) {
+                            n += u64::from(v[offset + slot]);
                         }
                     }
                 }
@@ -429,14 +452,13 @@ impl<A: Action> Engine<'_, A> {
                 // bounds check keeps fractional vectors from panicking.
                 Leaf::Single { offset } => {
                     let id = x[*offset];
-                    if id >= 0.0 && id < self.names.len() as f64 && self.names[id as usize] == name
-                    {
+                    if id >= 0.0 && id < self.names.len() as f64 && self.is_named(id as u32, name) {
                         n += 1.0;
                     }
                 }
                 Leaf::Array { offset, nodes, .. } => {
                     for (slot, node) in nodes.iter().enumerate() {
-                        if self.names[*node as usize] == name {
+                        if self.is_named(*node, name) {
                             n += x[offset + slot];
                         }
                     }
@@ -495,9 +517,9 @@ impl<A: Action> Engine<'_, A> {
                                 let label = Act::Act(a);
                                 let r = self.concretize_float(&r, x, &label)?;
                                 let to = offset + index[&t];
-                                if to == offset + slot {
-                                    continue; // self-loop: no net flow
-                                }
+                                // A self-loop has no net flow (its updates
+                                // cancel in `drift`) but still counts towards
+                                // cooperation, so it must be kept.
                                 let updates = vec![(offset + slot, -1.0), (to, 1.0)];
                                 out.push((label, r.scale(count), updates));
                             }
@@ -741,6 +763,19 @@ impl<A: Action> PepaModel<A> {
                 let Rate::Active(r) = rate else {
                     return Err(PepaError::UnsynchronisedPassive(label.to_string()));
                 };
+                // Rates are checked when defined, but sums and products of
+                // them can still overflow.
+                if !r.is_finite() {
+                    return Err(PepaError::InvalidRate {
+                        component: "the system equation".to_owned(),
+                        action: label.to_string(),
+                    });
+                }
+                // A zero rate is no transition: its target must not be
+                // discovered either (it may be unreachable).
+                if r == 0.0 {
+                    continue;
+                }
                 let mut next = v.clone();
                 for (slot, value) in updates {
                     next[slot] = value;

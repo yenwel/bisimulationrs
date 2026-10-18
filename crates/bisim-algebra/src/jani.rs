@@ -1,6 +1,6 @@
 //! JANI import: a documented subset of the JANI model interchange format
 //! (Budde et al., TACAS 2017 — the exchange language of Storm and Modest)
-//! lowered to [`PrismModel`](super::prism::PrismModel), hence to the same
+//! lowered to [`PrismModel`], hence to the same
 //! derivation, bisimulation and CTMC analysis as all other front ends.
 //!
 //! Supported: `dtmc`/`ctmc` automata with bounded integer/boolean
@@ -146,13 +146,21 @@ impl<'a> Lower<'a> {
             if self.consts.contains_key(&name) || self.global_idx.contains_key(&name) {
                 return Err(PrismError::Duplicate(name));
             }
-            if c.get("parameters").is_some() {
+            if c.get("parameters")
+                .and_then(Value::as_array)
+                .is_some_and(|p| !p.is_empty())
+            {
                 return Err(bad(format!(
                     "parameterised function `{name}` is not supported"
                 )));
             }
             let typ = get(c, "constant", "type")?;
-            let expr = self.lower_expr(get(c, "constant", "value")?, &HashMap::new())?;
+            // Constants carry a `value`; parameter-free functions a `body`.
+            let value = match c.get("value") {
+                Some(v) => v,
+                None => get(c, "function", "body")?,
+            };
+            let expr = self.lower_expr(value, &HashMap::new())?;
             let v = eval(&expr, &[], &[]).ok_or_else(|| {
                 PrismError::Arithmetic(format!("constant `{name}` is not finite"))
             })?;
@@ -267,16 +275,24 @@ impl<'a> Lower<'a> {
                         "type of `{name}` is not supported (bounded integers and booleans only)"
                     )));
                 }
-                let lo = get(typ, "type", "lower-bound").and_then(|v| {
-                    v.as_i64().ok_or_else(|| {
+                if let Some(base) = typ.get("base") {
+                    if base != "int" {
+                        return Err(bad(format!(
+                            "type of `{name}` has base {base}; only bounded integers are supported"
+                        )));
+                    }
+                }
+                // Bounds may be constant expressions (`"upper-bound": "N"`).
+                let lo = self
+                    .closed_int(get(typ, "type", "lower-bound")?)
+                    .map_err(|_| {
                         PrismError::Type(format!("lower bound of `{name}` is not an integer"))
-                    })
-                })?;
-                let hi = get(typ, "type", "upper-bound").and_then(|v| {
-                    v.as_i64().ok_or_else(|| {
+                    })?;
+                let hi = self
+                    .closed_int(get(typ, "type", "upper-bound")?)
+                    .map_err(|_| {
                         PrismError::Type(format!("upper bound of `{name}` is not an integer"))
-                    })
-                })?;
+                    })?;
                 let init = self.closed_int(init_src)?;
                 Ok((VarType::Int { lo, hi }, init))
             }
@@ -332,7 +348,20 @@ impl<'a> Lower<'a> {
                 return Err(PrismError::Duplicate(format!("{name}.{lname}")));
             }
         }
-        let init_loc = get(a, "automaton", "initial-location")?;
+        // JANI 1.x lists `initial-locations`; a single `initial-location` is
+        // the older spelling. Several initial locations mean several
+        // initial states, which a single valuation cannot express.
+        let init_loc = match a.get("initial-locations") {
+            Some(list) => match list.as_array().map(Vec::as_slice) {
+                Some([only]) => only,
+                _ => {
+                    return Err(bad(format!(
+                        "automaton `{name}` must have exactly one initial location"
+                    )));
+                }
+            },
+            None => get(a, "automaton", "initial-location")?,
+        };
         let init_loc = if let Some(i) = init_loc.as_u64() {
             i as usize
         } else {
@@ -350,15 +379,25 @@ impl<'a> Lower<'a> {
         // Local variables, qualified as `<automaton>_<var>`.
         let mut locals = HashMap::new();
         if let Some(vars) = a.get("variables") {
-            let vars = vars.as_object().ok_or_else(|| {
-                PrismError::Type(format!("variables of `{name}` must be an object"))
-            })?;
-            for (vname, def) in vars {
+            let declared: Vec<(String, &Value)> = match vars {
+                Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v)).collect(),
+                // JANI spec form: [{"name": ..., "type": ..., ...}].
+                Value::Array(list) => list
+                    .iter()
+                    .map(|def| Ok((as_str(get(def, "variable", "name")?, "variable name")?, def)))
+                    .collect::<Result<_, PrismError>>()?,
+                _ => {
+                    return Err(PrismError::Type(format!(
+                        "variables of `{name}` must be an object or an array"
+                    )));
+                }
+            };
+            for (vname, def) in declared {
                 let qname = format!("{name}_{vname}");
                 self.check_name(&qname)?;
                 let (typ, init) = self.var_type_init(&qname, def)?;
                 let idx = self.add_global(qname.clone(), typ, init)?;
-                locals.insert(vname.clone(), (qname, idx));
+                locals.insert(vname, (qname, idx));
             }
         }
         // Hidden location variable.
@@ -397,10 +436,25 @@ impl<'a> Lower<'a> {
     }
 
     fn lower_edge(&self, e: &Value, info: &AutoInfo) -> Result<Command, PrismError> {
+        // An unknown location must be an error: dropping it would let the
+        // edge fire from every location.
         let loc = match e.get("location") {
             None => None,
-            Some(Value::Number(n)) => n.as_u64().map(|i| i as usize),
-            Some(Value::String(s)) => info.loc_idx.get(s).copied(),
+            Some(Value::Number(n)) => match n.as_u64() {
+                Some(i) if (i as usize) < info.loc_idx.len() => Some(i as usize),
+                _ => {
+                    return Err(PrismError::Unknown(format!(
+                        "location {n} of automaton `{}`",
+                        info.name
+                    )));
+                }
+            },
+            Some(Value::String(s)) => Some(
+                *info
+                    .loc_idx
+                    .get(s)
+                    .ok_or_else(|| PrismError::Unknown(format!("location `{}.{s}`", info.name)))?,
+            ),
             _ => return Err(PrismError::Type("edge `location` must be a name".into())),
         };
         let action = match e.get("action") {
@@ -525,6 +579,18 @@ impl<'a> Lower<'a> {
         v: &Value,
         locals: &HashMap<String, (String, usize)>,
     ) -> Result<Expr, PrismError> {
+        if let Value::Object(o) = v {
+            // `{"exp": e}` is the spec's wrapper for rates and guards. (An
+            // operator object `{"op": "exp", "exp": e}` has an `op` key too.)
+            if o.len() == 1 {
+                if let Some(inner) = o.get("exp") {
+                    return self.lower_expr(inner, locals);
+                }
+            }
+            // Report the operator's own error (unknown variable, bad
+            // operand) instead of a generic one.
+            return self.lower_op(v, locals);
+        }
         match v {
             Value::Bool(b) => Ok(Expr::Bool(*b)),
             Value::Number(_) => as_num_lit(v, "literal")
@@ -546,10 +612,9 @@ impl<'a> Lower<'a> {
                 Err(PrismError::Unknown(name.clone()))
             }
             Value::Array(_) => Err(PrismError::Type("unexpected array in expression".into())),
-            Value::Object(_) => Err(PrismError::Type("unexpected object in expression".into())),
+            Value::Object(_) => unreachable!("objects are lowered above"),
             Value::Null => Err(PrismError::Type("unexpected null in expression".into())),
         }
-        .or_else(|first| self.lower_op(v, locals).map_err(|_| first))
     }
 
     /// Operator objects (`{"op": ..., ...}`); tried when `lower_expr`'s
@@ -677,9 +742,29 @@ impl<'a> Lower<'a> {
             // object entries additionally pin the participating automata.
             let mut action: Option<String> = None;
             let mut participants: Option<BTreeSet<String>> = None;
-            for e in entries {
+            let elements = self
+                .root
+                .get("system")
+                .and_then(|sys| sys.get("elements"))
+                .and_then(Value::as_array);
+            for (position, e) in entries.iter().enumerate() {
                 let (aname, act) = match e {
-                    Value::String(a) => (None, a.clone()),
+                    // `null`: the automaton at this position does not take
+                    // part in the vector.
+                    Value::Null => continue,
+                    // A plain action name belongs to the element at the same
+                    // position, as in the JANI spec.
+                    Value::String(a) => (
+                        elements
+                            .and_then(|list| list.get(position))
+                            .map(|el| match el {
+                                Value::String(n) => Ok(n.clone()),
+                                _ => get(el, "element", "automaton")
+                                    .and_then(|n| as_str(n, "element automaton")),
+                            })
+                            .transpose()?,
+                        a.clone(),
+                    ),
                     _ => (
                         Some(as_str(
                             get(e, "sync entry", "automaton")?,
@@ -705,9 +790,19 @@ impl<'a> Lower<'a> {
                     participants.get_or_insert_with(BTreeSet::new).insert(aname);
                 }
             }
-            let action = action.expect("non-empty vector");
-            if let Some(result) = s.get("result").and_then(|r| r.get("action")) {
-                let result = as_str(result, "sync result action")?;
+            let Some(action) = action else {
+                return Err(PrismError::Type(
+                    "sync `synchronise` has no participating automaton".into(),
+                ));
+            };
+            // `result` is an action name (spec) or `{"action": name}`.
+            let result = match s.get("result") {
+                Some(Value::String(r)) => Some(Value::String(r.clone())),
+                Some(r) => r.get("action").cloned(),
+                None => None,
+            };
+            if let Some(result) = result {
+                let result = as_str(&result, "sync result action")?;
                 if result != action {
                     return Err(bad(
                         "synchronisation vectors renaming the result action are not supported",
@@ -808,6 +903,115 @@ mod tests {
             }],
             "system": {"elements": [{"automaton": "m"}], "syncs": []}
         })
+    }
+
+    /// Two-location CTMC automaton in spec shapes (`initial-locations`,
+    /// `{"exp": ...}` rates, array variables, expression bounds).
+    fn spec_shaped() -> Value {
+        json!({
+            "jani-version": 1, "name": "spec", "type": "ctmc",
+            "constants": [{"name": "N", "type": "int", "value": 2}],
+            "variables": [],
+            "automata": [{
+                "name": "m",
+                "locations": [{"name": "a"}, {"name": "b"}],
+                "initial-locations": ["a"],
+                "variables": [{"name": "c", "type": {"kind": "bounded", "base": "int", "lower-bound": 0, "upper-bound": "N"}, "initial-value": 0}],
+                "edges": [
+                    {"location": "a", "rate": {"exp": 1.5}, "guard": {"exp": true},
+                     "destinations": [{"location": "b", "assignments": [{"ref": "c", "value": 1}]}]},
+                    {"location": "b", "rate": {"exp": 2.0},
+                     "destinations": [{"location": "a"}]}
+                ]
+            }],
+            "system": {"elements": [{"automaton": "m"}], "syncs": []}
+        })
+    }
+
+    fn derive(model: &Value) -> Result<crate::prism::PrismDerived, PrismError> {
+        parse_jani(&serde_json::to_string(model).unwrap())?.derive()
+    }
+
+    #[test]
+    fn spec_conformant_shapes_are_accepted() {
+        let d = derive(&spec_shaped()).unwrap();
+        // (a, c=0), (b, c=1) and (a, c=1): `c` is not reset on the way back.
+        assert_eq!(d.num_states(), 3);
+        let init = d.lts.initial().unwrap();
+        assert_eq!(d.lts.successors(init)[0].weight.value(), 1.5);
+        // Parameter-free functions use `body`.
+        let mut model = spec_shaped();
+        model["functions"] = json!([{"name": "f", "type": "int", "parameters": [], "body": 2}]);
+        assert!(derive(&model).is_ok());
+    }
+
+    #[test]
+    fn unknown_locations_are_errors_not_dropped_guards() {
+        let mut model = spec_shaped();
+        model["automata"][0]["edges"][1]["location"] = json!("bb");
+        let e = derive(&model).unwrap_err();
+        assert!(e.to_string().contains("bb"), "{e}");
+        let mut model = spec_shaped();
+        model["automata"][0]["edges"][1]["location"] = json!(7);
+        assert!(derive(&model).is_err());
+        let mut model = spec_shaped();
+        model["automata"][0]["initial-locations"] = json!(["a", "b"]);
+        assert!(derive(&model).is_err());
+    }
+
+    #[test]
+    fn only_bounded_integers_and_operator_errors_are_reported() {
+        let mut model = spec_shaped();
+        model["automata"][0]["variables"][0]["type"]["base"] = json!("real");
+        let e = derive(&model).unwrap_err();
+        assert!(e.to_string().contains("base"), "{e}");
+        // The nested operator's own error survives.
+        let mut model = spec_shaped();
+        model["automata"][0]["edges"][0]["guard"] =
+            json!({"op": "∧", "left": true, "right": "undefined_variable"});
+        let e = derive(&model).unwrap_err();
+        assert!(e.to_string().contains("undefined_variable"), "{e}");
+    }
+
+    #[test]
+    fn sync_vectors_allow_null_entries_and_reject_renaming_results() {
+        let mut model = spec_shaped();
+        let second = model["automata"][0].clone();
+        model["automata"].as_array_mut().unwrap().push(second);
+        model["automata"][1]["name"] = json!("n");
+        model["automata"][1]["variables"][0]["name"] = json!("d");
+        model["automata"][1]["edges"][0]["destinations"][0]["assignments"][0]["ref"] = json!("d");
+        model["automata"][0]["edges"][0]["action"] = json!("go");
+        model["automata"][1]["edges"][0]["action"] = json!("go");
+        model["system"]["elements"] = json!([{"automaton": "m"}, {"automaton": "n"}]);
+        model["system"]["syncs"] = json!([{"synchronise": ["go", "go"], "result": "go"}]);
+        assert!(derive(&model).is_ok());
+        // `null` leaves `n` out, but `n` offers `go`: partial vector.
+        model["system"]["syncs"] = json!([{"synchronise": ["go", null]}]);
+        let e = derive(&model).unwrap_err();
+        assert!(e.to_string().contains("partial"), "{e}");
+        // A string result that renames the action is not silently ignored.
+        model["system"]["syncs"] = json!([{"synchronise": ["go", "go"], "result": "other"}]);
+        let e = derive(&model).unwrap_err();
+        assert!(e.to_string().contains("renaming"), "{e}");
+    }
+
+    #[test]
+    fn division_is_real_division() {
+        let mut model = coin();
+        let dest = &mut model["automata"][0]["edges"][0]["destinations"];
+        dest[0]["probability"] = json!({"op": "/", "left": 1, "right": 2});
+        dest[1]["probability"] = json!({"op": "/", "left": 1, "right": 2});
+        let m = parse_jani(&serde_json::to_string(&model).unwrap()).unwrap();
+        let d = m.derive().unwrap();
+        let init = d.lts.initial().unwrap();
+        let probs: Vec<f64> = d
+            .lts
+            .successors(init)
+            .iter()
+            .map(|e| e.weight.value())
+            .collect();
+        assert_eq!(probs, vec![0.5, 0.5]);
     }
 
     #[test]

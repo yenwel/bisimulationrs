@@ -41,10 +41,18 @@ impl fmt::Display for ParseError {
     }
 }
 
+impl std::error::Error for ParseError {}
+
 /// Parses and validates a PEPA model.
 pub fn parse_pepa(src: &str) -> Result<PepaModel<Sym>, PepaError> {
     let tokens = lex(src)?;
-    let raw = Parser { tokens, pos: 0 }.file()?;
+    let raw = Parser {
+        tokens,
+        pos: 0,
+        depth: 0,
+        tree: 0,
+    }
+    .file()?;
     let model = resolve(raw)?;
     model.validate()?;
     Ok(model)
@@ -227,7 +235,26 @@ struct RawFile {
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    /// Current nesting of recursive rules, bounded by [`MAX_DEPTH`].
+    depth: usize,
+    /// Depth of the tree built so far in the current scope: nesting plus
+    /// the length of left-nested operator chains, bounded by [`MAX_TREE`].
+    tree: usize,
 }
+
+/// Deepest nesting of parentheses and prefixes accepted. Later phases and
+/// the destructors recurse on the tree too, so unbounded input would
+/// overflow the stack and abort the process.
+const MAX_DEPTH: usize = 200;
+
+/// Deepest syntax tree accepted, counting every operator of a chain such
+/// as `1 + 1 + … + 1`, which parses to a left-leaning tree as deep as the
+/// chain is long. Resolving, printing and dropping it recurse on that depth.
+const MAX_TREE: usize = 2_000;
+
+/// Largest array size `P[n]`: counts are `u32` and are summed and
+/// incremented, which must not overflow.
+const MAX_ARRAY: u32 = 1_000_000_000;
 
 impl Parser {
     fn peek(&self) -> &Tok {
@@ -241,6 +268,15 @@ impl Parser {
     fn here(&self) -> (usize, usize) {
         let t = &self.tokens[self.pos];
         (t.line, t.column)
+    }
+
+    /// Accounts for one more level of the tree under construction.
+    fn grow(&mut self) -> Result<(), ParseError> {
+        self.tree += 1;
+        if self.tree > MAX_TREE {
+            return self.error("expression is too long or nested too deeply");
+        }
+        Ok(())
     }
 
     fn error<T>(&self, msg: &str) -> Result<T, ParseError> {
@@ -287,11 +323,20 @@ impl Parser {
         let mut params = Vec::new();
         let mut defs = Vec::new();
         let mut system = None;
+        let mut seen = std::collections::HashSet::new();
         while *self.peek() != Tok::Eof {
+            self.tree = 0;
             let at = self.here();
             if matches!(self.peek(), Tok::Ident(_)) && *self.peek_at(1) == Tok::Sym("=") {
                 let name = self.ident()?;
                 self.bump();
+                if !seen.insert(name.clone()) {
+                    return Err(err_at(
+                        at.0,
+                        at.1,
+                        &format!("`{name}` is defined more than once"),
+                    ));
+                }
                 if name.starts_with(|c: char| c.is_ascii_lowercase()) {
                     params.push((name, self.rate()?));
                 } else {
@@ -337,6 +382,7 @@ impl Parser {
                 return Ok(left);
             };
             let right = self.hide()?;
+            self.grow()?;
             left = Expr::Coop(Box::new(left), set, Box::new(right));
         }
     }
@@ -348,6 +394,7 @@ impl Parser {
             self.expect("{")?;
             let set = self.actions()?;
             self.expect("}")?;
+            self.grow()?;
             e = Expr::Hide(Box::new(e), set);
         }
         Ok(e)
@@ -376,6 +423,18 @@ impl Parser {
 
     // prefix := '(' action ',' rate ')' '.' prefix | atom
     fn prefix(&mut self) -> Result<Expr, ParseError> {
+        if self.depth >= MAX_DEPTH {
+            return self.error("expression is nested too deeply");
+        }
+        self.depth += 1;
+        let base = self.tree;
+        let result = self.grow().and_then(|()| self.prefix_inner());
+        self.tree = base;
+        self.depth -= 1;
+        result
+    }
+
+    fn prefix_inner(&mut self) -> Result<Expr, ParseError> {
         let is_prefix = *self.peek() == Tok::Sym("(")
             && matches!(self.peek_at(1), Tok::Ident(_))
             && *self.peek_at(2) == Tok::Sym(",");
@@ -400,10 +459,14 @@ impl Parser {
                 self.bump();
                 if self.eat("[") {
                     let n = match self.bump() {
-                        Tok::Num(v) if v >= 0.0 && v.fract() == 0.0 && v <= u32::MAX as f64 => {
+                        Tok::Num(v) if v >= 0.0 && v.fract() == 0.0 && v <= MAX_ARRAY as f64 => {
                             v as u32
                         }
-                        _ => return self.error("expected a non-negative integer array size"),
+                        _ => {
+                            return self.error(
+                                "expected a non-negative integer array size of at most 1000000000",
+                            );
+                        }
                     };
                     self.expect("]")?;
                     Ok(Expr::Array(name, n, at))
@@ -436,6 +499,7 @@ impl Parser {
             } else {
                 return Ok(left);
             };
+            self.grow()?;
             left = RawRate::Bin(op, Box::new(left), Box::new(self.rate_term()?));
         }
     }
@@ -450,11 +514,24 @@ impl Parser {
             } else {
                 return Ok(left);
             };
+            self.grow()?;
             left = RawRate::Bin(op, Box::new(left), Box::new(self.rate_factor()?));
         }
     }
 
     fn rate_factor(&mut self) -> Result<RawRate, ParseError> {
+        if self.depth >= MAX_DEPTH {
+            return self.error("expression is nested too deeply");
+        }
+        self.depth += 1;
+        let base = self.tree;
+        let result = self.grow().and_then(|()| self.rate_factor_inner());
+        self.tree = base;
+        self.depth -= 1;
+        result
+    }
+
+    fn rate_factor_inner(&mut self) -> Result<RawRate, ParseError> {
         // Species count `#{name}`: whitespace may separate `#` and the name,
         // since `pepa!` stringifies `#I` as `# I`.
         if *self.peek() == Tok::Sym("#") {
@@ -492,25 +569,24 @@ fn resolve(raw: RawFile) -> Result<PepaModel<Sym>, PepaError> {
         seqs: Vec::new(),
         models: HashMap::new(),
     };
-    let mut params = Vec::new();
-    for (name, _) in &raw.params {
-        r.params.insert(name.clone(), ParamId(params.len() as u32));
-        params.push((name.clone(), 0.0));
-    }
-    for (i, (_, rate)) in raw.params.iter().enumerate() {
+    let mut params: Vec<(String, f64)> = Vec::new();
+    for (name, rate) in &raw.params {
+        // A parameter may refer to earlier parameters only: it is entered
+        // after its value is known, so `a = b + 1; b = 5;` reports `b` as
+        // unknown instead of silently using 0.
         let expr = r.rate(rate)?;
         // Parameters are constants: no passive rates, no species counts.
-        // Parameters may refer to earlier parameters.
         let value = match expr.eval(&params) {
             Some(crate::pepa::Rate::Active(v)) => v,
             _ => {
                 return Err(PepaError::InvalidRate {
-                    component: params[i].0.clone(),
+                    component: name.clone(),
                     action: "parameter".into(),
                 });
             }
         };
-        params[i].1 = value;
+        r.params.insert(name.clone(), ParamId(params.len() as u32));
+        params.push((name.clone(), value));
     }
 
     // Classify definitions: model components (cooperation, hiding, arrays)
