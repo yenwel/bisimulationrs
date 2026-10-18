@@ -164,22 +164,6 @@ mod tests {
     use super::*;
     use bisim_core::NamedBuilder;
 
-    fn rate_sys<'a>(rates: &'a [(&'a str, &'a str, f64)]) -> (Wlts<&'a str, Real>, Vec<&'a str>) {
-        let mut b = NamedBuilder::<&str, &str, Real>::new();
-        for (i, (s, l, _)) in rates.iter().enumerate() {
-            if i == 0 {
-                b.initial(*s);
-            }
-            let _ = l;
-        }
-        for (s, l, r) in rates {
-            let t = format!("{s}_{l}");
-            let _ = t;
-            b.transition(*s, *l, *s, Real(*r));
-        }
-        b.build()
-    }
-
     #[test]
     fn exact_states_have_zero_distance() {
         let (a, _) = NamedBuilder::from_triples([("x", 'a', "y"), ("y", 'a', "x")]);
@@ -224,7 +208,6 @@ mod tests {
             },
         );
         assert!(matches!(bad, Verdict::Violated { .. }));
-        let _ = rate_sys(&[("p", "a", 1.0)]);
     }
 
     #[test]

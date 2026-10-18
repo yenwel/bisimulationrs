@@ -1,35 +1,82 @@
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::sync::OnceLock;
 
 use bisim_core::{Formula, LabelId, Partition, Semiring, Signature, StateId, Wlts};
 
-/// Result of partition refinement: the coarsest stable partition and the
-/// partition after every round.
+/// Result of partition refinement: the coarsest stable partition and every
+/// round before it.
+///
+/// The rounds are stored as a tree of splits, `O(n)` in total: a block that
+/// splits in round `k` becomes several child nodes created at round `k`,
+/// and each state remembers its final node. The partition of an earlier
+/// round is rebuilt from the tree when asked for (and kept), so memory
+/// grows with the rounds actually inspected, not with all of them.
 #[derive(Debug, Clone)]
 pub struct Refinement {
-    /// `history[k]` is the `k`-step equivalence `∼ₖ`; the last entry is `∼`.
-    pub history: Vec<Partition>,
+    /// `(parent, created)` of every node; roots (the blocks of the initial
+    /// partition) have `parent == NO_PARENT` and `created == 0`. Parents
+    /// come before their children.
+    nodes: Vec<(u32, u32)>,
+    /// Node of every state in the final partition.
+    leaf: Vec<u32>,
+    rounds: usize,
+    /// `∼ₖ` for every round `k`, built on first use.
+    partitions: Vec<OnceLock<Partition>>,
 }
+
+const NO_PARENT: u32 = u32::MAX;
 
 impl Refinement {
     /// The behavioural equivalence (greatest fixpoint).
     pub fn partition(&self) -> &Partition {
-        self.history.last().expect("history is never empty")
+        self.up_to(self.rounds)
     }
 
     /// The number of rounds needed to reach the fixpoint.
     pub fn rounds(&self) -> usize {
-        self.history.len() - 1
+        self.rounds
     }
 
     /// The `n`-step approximant `∼ₙ` (equal to `∼` for `n ≥ rounds()`).
     pub fn up_to(&self, n: usize) -> &Partition {
-        &self.history[n.min(self.history.len() - 1)]
+        let k = n.min(self.rounds);
+        self.partitions[k].get_or_init(|| {
+            // The block of a node at round `k` is its youngest ancestor
+            // created by then; parents come first, so one pass suffices.
+            let mut block = vec![0u32; self.nodes.len()];
+            for (v, &(parent, created)) in self.nodes.iter().enumerate() {
+                block[v] = if created as usize <= k {
+                    v as u32
+                } else {
+                    block[parent as usize]
+                };
+            }
+            Partition::from_keys(self.leaf.iter().map(|&l| block[l as usize]))
+        })
     }
 
     /// The first round in which `s` and `t` are separated, if any.
     pub fn separation_depth(&self, s: StateId, t: StateId) -> Option<usize> {
-        self.history.iter().position(|p| !p.same_block(s, t))
+        let (mut a, mut b) = (self.leaf[s.index()], self.leaf[t.index()]);
+        let mut separated = 0;
+        while a != b {
+            // Climb from the younger node; both children of the node where
+            // the paths meet were created in the splitting round.
+            let x = if self.nodes[a as usize].1 >= self.nodes[b as usize].1 {
+                &mut a
+            } else {
+                &mut b
+            };
+            let (parent, created) = self.nodes[*x as usize];
+            if parent == NO_PARENT {
+                // Different blocks of the initial partition.
+                return Some(0);
+            }
+            separated = created;
+            *x = parent;
+        }
+        (separated > 0).then_some(separated as usize)
     }
 }
 
@@ -43,20 +90,56 @@ impl Refinement {
 /// This is the reference implementation that faster engines are tested against.
 pub fn refine<S: Signature>(sys: &S, initial: Option<&Partition>) -> Refinement {
     let n = sys.num_states();
-    let first = initial.cloned().unwrap_or_else(|| Partition::coarsest(n));
-    assert_eq!(first.len(), n, "initial partition must cover every state");
+    let mut current = initial.cloned().unwrap_or_else(|| Partition::coarsest(n));
+    assert_eq!(current.len(), n, "initial partition must cover every state");
 
-    let mut history = vec![first];
+    let mut nodes: Vec<(u32, u32)> = vec![(NO_PARENT, 0); current.num_blocks()];
+    // Node of every block of `current`.
+    let mut node_of: Vec<u32> = (0..current.num_blocks() as u32).collect();
+    let mut rounds = 0;
     loop {
-        let current = history.last().expect("non-empty");
         let block_of = current.as_slice();
         let next = Partition::from_keys(
             (0..n as u32).map(|s| (block_of[s as usize], sys.signature(StateId(s), block_of))),
         );
         if next.num_blocks() == current.num_blocks() {
-            return Refinement { history };
+            let leaf = (0..n)
+                .map(|s| node_of[current.as_slice()[s] as usize])
+                .collect();
+            let partitions = (0..=rounds).map(|_| OnceLock::new()).collect::<Vec<_>>();
+            let refinement = Refinement {
+                nodes,
+                leaf,
+                rounds,
+                partitions,
+            };
+            // The last round is already at hand.
+            let _ = refinement.partitions[rounds].set(current);
+            return refinement;
         }
-        history.push(next);
+        rounds += 1;
+        // Which block of `current` each new block came from, and how many
+        // new blocks it became: a block that stays whole keeps its node.
+        let mut parent = vec![u32::MAX; next.num_blocks()];
+        let mut children = vec![0u32; current.num_blocks()];
+        for s in 0..n {
+            let nb = next.as_slice()[s] as usize;
+            if parent[nb] == u32::MAX {
+                parent[nb] = block_of[s];
+                children[block_of[s] as usize] += 1;
+            }
+        }
+        let mut next_node = vec![0u32; next.num_blocks()];
+        for (nb, &p) in parent.iter().enumerate() {
+            next_node[nb] = if children[p as usize] == 1 {
+                node_of[p as usize]
+            } else {
+                nodes.push((node_of[p as usize], rounds as u32));
+                nodes.len() as u32 - 1
+            };
+        }
+        node_of = next_node;
+        current = next;
     }
 }
 
@@ -78,14 +161,14 @@ where
 {
     refinement.separation_depth(s, t)?;
     let mut memo = HashMap::new();
-    witness(sys, &refinement.history, s, t, &mut memo)
+    witness(sys, refinement, s, t, &mut memo)
 }
 
 type Memo<L, K> = HashMap<(StateId, StateId), Option<Formula<L, K>>>;
 
 fn witness<L, W>(
     sys: &Wlts<L, W>,
-    history: &[Partition],
+    refinement: &Refinement,
     s: StateId,
     t: StateId,
     memo: &mut Memo<L, W::Key>,
@@ -97,13 +180,13 @@ where
     if let Some(f) = memo.get(&(s, t)) {
         return f.clone();
     }
-    let depth = history.iter().position(|p| !p.same_block(s, t));
+    let depth = refinement.separation_depth(s, t);
     let result = match depth {
         // Never separated, or separated by the initial partition (no atomic
         // propositions are available to explain that).
         None | Some(0) => None,
         Some(k) => {
-            let prev = history[k - 1].as_slice();
+            let prev = refinement.up_to(k - 1).as_slice();
             let sums_s = sys.class_sums(s, prev);
             let sums_t = sys.class_sums(t, prev);
             let (label, block) = first_difference(&sums_s.keys(), &sums_t.keys())
@@ -127,7 +210,7 @@ where
             let x = inside.expect("differing class sum implies a successor in the block");
             let mut conj = Vec::with_capacity(others.len());
             for (_, y) in others {
-                conj.push(witness(sys, history, x, y, memo)?);
+                conj.push(witness(sys, refinement, x, y, memo)?);
             }
             let target = match conj.len() {
                 0 => Formula::True,

@@ -1,13 +1,17 @@
 //! Fast partition refinement with a dirty-flag worklist.
 //!
 //! [`refine_fast`] computes the same coarsest stable partition as
-//! [`refine`](super::refine), but signatures are cached per state and
-//! recomputed only for dirty states: a split dirties exactly the
-//! predecessors of states that changed block, and the largest part keeps
-//! its block id (Hopcroft's trick), so every state moves blocks at most
-//! `log n` times (cf. the refinable partition with clean/dirty states in
-//! CoPaR, Wißmann et al.). Stable regions of a large system are never
-//! rehashed.
+//! [`refine`](super::refine), but only recomputes what a split can have
+//! changed. A split dirties exactly the predecessors of the states that
+//! changed block, and the largest part keeps its block id (Hopcroft's
+//! trick), so every state moves blocks at most `log n` times (cf. the
+//! refinable partition with clean/dirty states in CoPaR, Wißmann et al.).
+//!
+//! The clean states of a block all share one cached signature, so a block
+//! is processed by hashing its dirty states only and comparing them with
+//! that one signature: the cost of a step is the number of dirty states
+//! (plus the states that move), not the size of the block. Stable regions
+//! of a large system are never rehashed.
 //!
 //! This is chaotic iteration of the same monotone operator, hence the
 //! same greatest fixpoint — differential-tested against [`refine`] — but
@@ -17,11 +21,10 @@
 //! use [`refine`](super::refine). Use this for `minimise` and for
 //! analyses that only need the final partition.
 //!
-//! Measured profile (`cargo bench -p bisimulationrs`): several times
-//! faster than [`refine`] on deep/narrow systems (chains) and dense
-//! graphs, up to ~25% slower on shallow symmetric pipelines where almost
-//! every block splits every round (the worklist machinery has nothing to
-//! prune). A full counting-based Paige–Tarjan backend remains future work.
+//! Measured profile (`cargo bench -p bisimulationrs`): see the benchmark
+//! suite; shallow symmetric pipelines, where almost every block splits
+//! every round, are the one shape with nothing to prune. A full
+//! counting-based Paige–Tarjan backend remains future work.
 
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
@@ -31,9 +34,20 @@ use bisim_core::{LabelId, Partition, Semiring, Signature, StateId, Wlts};
 /// Cached signature type of [`Wlts`].
 type SigOf<W> = Vec<((LabelId, u32), <W as bisim_core::SignatureKey>::Key)>;
 
+/// Removes `s` from `members` in O(1), keeping `pos` (index of every state
+/// in its block's member list) valid.
+fn remove_member(members: &mut Vec<StateId>, pos: &mut [u32], s: StateId) {
+    let i = pos[s.index()] as usize;
+    let last = *members.last().expect("block has members");
+    members.swap_remove(i);
+    if last != s {
+        pos[last.index()] = i as u32;
+    }
+}
+
 /// The coarsest stable partition of `sys`, refining `initial` (or the
 /// single-block partition). Output is canonical, hence equal to
-/// [`refine`](super::refine)`.`partition()` on the same input.
+/// [`refine`](super::refine)`.`partition() on the same input.
 pub fn refine_fast<L: Eq + Hash + Clone, W: Semiring>(
     sys: &Wlts<L, W>,
     initial: Option<&Partition>,
@@ -47,22 +61,15 @@ pub fn refine_fast<L: Eq + Hash + Clone, W: Semiring>(
 
     // Stable block ids (never reused); canonicalised once at the end.
     let mut block_of: Vec<u32> = first.as_slice().to_vec();
-    // Normalise ids to 0..k in case the caller passed sparse numbering.
-    let renumber: HashMap<u32, u32> = {
-        let mut map = HashMap::new();
-        for b in block_of.iter() {
-            let next = map.len() as u32;
-            map.entry(*b).or_insert(next);
+    let mut members: Vec<Vec<StateId>> = first.blocks();
+    let mut pos = vec![0u32; n];
+    for block in &members {
+        for (i, s) in block.iter().enumerate() {
+            pos[s.index()] = i as u32;
         }
-        map
-    };
-    for b in block_of.iter_mut() {
-        *b = renumber[b];
     }
-    let mut members: Vec<Vec<StateId>> = vec![Vec::new(); renumber.len()];
-    for (s, &b) in block_of.iter().enumerate() {
-        members[b as usize].push(StateId(s as u32));
-    }
+    // The signature shared by the clean states of a block.
+    let mut block_sig: Vec<Option<SigOf<W>>> = members.iter().map(|_| None).collect();
 
     // Predecessors (any label), built lazily on the first split: models
     // that converge immediately never pay for them. A split only affects
@@ -78,82 +85,123 @@ pub fn refine_fast<L: Eq + Hash + Clone, W: Semiring>(
         pred
     };
 
-    let mut dirty = vec![false; n];
-    let mut sig: Vec<Option<SigOf<W>>> = (0..n).map(|_| None).collect();
-    let mut in_queue = vec![false; members.len()];
-    let mut queue: VecDeque<u32> = VecDeque::new();
-    let touch = |queue: &mut VecDeque<u32>,
-                 in_queue: &mut Vec<bool>,
-                 dirty: &mut Vec<bool>,
-                 block_of: &[u32],
-                 s: StateId| {
-        dirty[s.index()] = true;
-        let b = block_of[s.index()] as usize;
-        if !in_queue[b] {
-            in_queue[b] = true;
-            queue.push_back(b as u32);
-        }
-    };
-    for s in sys.states() {
-        touch(&mut queue, &mut in_queue, &mut dirty, &block_of, s);
-    }
+    // Every state starts dirty; each block lists its dirty states.
+    let mut dirty = vec![true; n];
+    let mut dirty_in: Vec<Vec<StateId>> = members.clone();
+    let mut in_queue = vec![true; members.len()];
+    let mut queue: VecDeque<u32> = (0..members.len() as u32).collect();
+    let mut is_dirty_now = vec![false; n];
 
     while let Some(c) = queue.pop_front() {
-        in_queue[c as usize] = false;
-        if members[c as usize].is_empty() {
+        let c = c as usize;
+        in_queue[c] = false;
+        let dirty_states = std::mem::take(&mut dirty_in[c]);
+        if dirty_states.is_empty() {
             continue;
         }
-        if !members[c as usize].iter().any(|s| dirty[s.index()]) {
-            continue;
+        for &s in &dirty_states {
+            dirty[s.index()] = false;
         }
-        // Recompute dirty signatures only; clean ones are cached.
-        for &s in &members[c as usize] {
-            if dirty[s.index()] {
-                sig[s.index()] = Some(sys.signature(s, &block_of));
-                dirty[s.index()] = false;
-            }
-        }
-        // Group by reference (keys cloned once per group below).
-        let mut groups: HashMap<&SigOf<W>, Vec<StateId>> = HashMap::new();
-        for &s in &members[c as usize] {
+        // Hash the dirty states only.
+        let mut groups: HashMap<SigOf<W>, Vec<StateId>> = HashMap::new();
+        for &s in &dirty_states {
             groups
-                .entry(sig[s.index()].as_ref().expect("computed or cached"))
+                .entry(sys.signature(s, &block_of))
                 .or_default()
                 .push(s);
         }
-        if groups.len() <= 1 {
+        // The clean states, plus the dirty ones that still agree with them.
+        let clean_n = members[c].len() - dirty_states.len();
+        let mut merged: Vec<StateId> = Vec::new();
+        if clean_n > 0 {
+            let shared = block_sig[c]
+                .as_ref()
+                .expect("clean states have a signature");
+            merged = groups.remove(shared).unwrap_or_default();
+        }
+        let clean_size = clean_n + merged.len();
+        let mut parts: Vec<(SigOf<W>, Vec<StateId>)> = groups.into_iter().collect();
+        if parts.is_empty() || (clean_size == 0 && parts.len() == 1) {
+            // No split. A block without clean states has just learnt its
+            // shared signature.
+            if clean_size == 0 {
+                block_sig[c] = Some(parts.pop().expect("one group").0);
+            }
             continue;
         }
-        // Keep the largest part in `c` (each state moves O(log n) times);
-        // only predecessors of moved states can change signature.
-        let mut parts: Vec<(SigOf<W>, Vec<StateId>)> =
-            groups.into_iter().map(|(k, v)| (k.clone(), v)).collect();
+
+        // Keep the largest group in `c` (each state moves O(log n) times).
         let biggest = parts
             .iter()
             .enumerate()
-            .max_by_key(|(_, (_, p))| p.len())
-            .map(|(i, _)| i)
-            .expect("at least two parts");
-        let (_, keep) = parts.swap_remove(biggest);
-        members[c as usize] = keep;
-        for (_, part) in parts {
-            // Reserve the slot before reassigning: moved states with
-            // self-loops touch their own (new) block id immediately.
-            let id = members.len() as u32;
-            members.push(part);
-            in_queue.push(false);
-            if pred.is_none() {
-                pred = Some(predecessors(sys));
-            }
-            let pred = pred.as_ref().expect("built");
-            for s in members[id as usize].clone() {
-                block_of[s.index()] = id;
-                for &p in &pred[s.index()] {
-                    touch(&mut queue, &mut in_queue, &mut dirty, &block_of, p);
+            .max_by_key(|(_, (_, v))| v.len())
+            .map(|(i, (_, v))| (i, v.len()))
+            .expect("at least one other group");
+        if clean_size >= biggest.1 {
+            // The clean group stays; the other groups leave.
+            for (_, part) in &parts {
+                for &s in part {
+                    remove_member(&mut members[c], &mut pos, s);
                 }
             }
-            in_queue[id as usize] = true;
-            queue.push_back(id);
+        } else {
+            // A dirty group stays; the clean states leave with the rest.
+            let (sig, keep) = parts.swap_remove(biggest.0);
+            for &s in &dirty_states {
+                is_dirty_now[s.index()] = true;
+            }
+            let mut leaving: Vec<StateId> = members[c]
+                .iter()
+                .copied()
+                .filter(|s| !is_dirty_now[s.index()])
+                .collect();
+            for &s in &dirty_states {
+                is_dirty_now[s.index()] = false;
+            }
+            if clean_size > 0 {
+                // The clean group, with the dirty states that agree with it.
+                let shared = block_sig[c].take().expect("clean states have a signature");
+                leaving.extend(merged);
+                parts.push((shared, leaving));
+            }
+            for (i, &s) in keep.iter().enumerate() {
+                pos[s.index()] = i as u32;
+            }
+            members[c] = keep;
+            block_sig[c] = Some(sig);
+        }
+
+        // Move the leaving groups into new blocks, then dirty the
+        // predecessors (after all block ids are final).
+        let mut moved: Vec<StateId> = Vec::new();
+        for (sig, part) in parts {
+            let id = members.len() as u32;
+            for (i, &s) in part.iter().enumerate() {
+                block_of[s.index()] = id;
+                pos[s.index()] = i as u32;
+            }
+            moved.extend(&part);
+            members.push(part);
+            block_sig.push(Some(sig));
+            dirty_in.push(Vec::new());
+            in_queue.push(false);
+        }
+        if pred.is_none() {
+            pred = Some(predecessors(sys));
+        }
+        let pred = pred.as_ref().expect("built");
+        for s in moved {
+            for &p in &pred[s.index()] {
+                if !dirty[p.index()] {
+                    dirty[p.index()] = true;
+                    let b = block_of[p.index()] as usize;
+                    dirty_in[b].push(p);
+                    if !in_queue[b] {
+                        in_queue[b] = true;
+                        queue.push_back(b as u32);
+                    }
+                }
+            }
         }
     }
 
