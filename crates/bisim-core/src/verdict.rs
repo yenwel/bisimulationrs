@@ -1,5 +1,6 @@
 /// Outcome of one behavioural check, parametric in the witness type `X`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Verdict<X> {
     /// The relation holds on the full (finite) systems.
     Holds,
@@ -8,6 +9,9 @@ pub enum Verdict<X> {
     HoldsUpTo { depth: u32 },
     /// The relation fails; the witness explains why.
     Violated { witness: X },
+    /// No difference found, but some behaviour is still being observed
+    /// (open states of a growing prefix): the relation may yet fail.
+    HoldsSoFar,
     /// Not enough information yet.
     Unknown,
     /// Quantitative answer: behavioural distance and optional confidence interval.
@@ -19,7 +23,10 @@ pub enum Verdict<X> {
 
 impl<X> Verdict<X> {
     pub fn holds(&self) -> bool {
-        matches!(self, Verdict::Holds | Verdict::HoldsUpTo { .. })
+        matches!(
+            self,
+            Verdict::Holds | Verdict::HoldsUpTo { .. } | Verdict::HoldsSoFar
+        )
     }
 
     pub fn is_violated(&self) -> bool {

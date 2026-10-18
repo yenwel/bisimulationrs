@@ -23,6 +23,10 @@ impl<K: Ord + Clone, W: Semiring> SparseMap<K, W> {
     }
 
     /// Adds `weight` to the value at `key` (accumulating multiplicities).
+    ///
+    /// For floating-point weights, repeated `add`s depend on their order in
+    /// the last bits; collecting from an iterator does not (see
+    /// [`Semiring::sum`]).
     pub fn add(&mut self, key: K, weight: W) {
         match self.entries.binary_search_by(|(k, _)| k.cmp(&key)) {
             Ok(i) => {
@@ -62,11 +66,10 @@ impl<K: Ord + Clone, W: Semiring> SparseMap<K, W> {
 
     /// Push-forward along `f`, summing the weights of keys that collide.
     pub fn map_sum<K2: Ord + Clone>(&self, mut f: impl FnMut(&K) -> K2) -> SparseMap<K2, W> {
-        let mut out = SparseMap::new();
-        for (k, w) in &self.entries {
-            out.add(f(k), w.clone());
-        }
-        out
+        self.entries
+            .iter()
+            .map(|(k, w)| (f(k), w.clone()))
+            .collect()
     }
 
     /// Canonical, hashable signature of this function.
@@ -78,13 +81,23 @@ impl<K: Ord + Clone, W: Semiring> SparseMap<K, W> {
     }
 }
 
+/// Weights of equal keys are added with [`Semiring::sum`], so the map does
+/// not depend on the order of the items.
 impl<K: Ord + Clone, W: Semiring> FromIterator<(K, W)> for SparseMap<K, W> {
     fn from_iter<I: IntoIterator<Item = (K, W)>>(iter: I) -> Self {
-        let mut map = SparseMap::new();
-        for (k, w) in iter {
-            map.add(k, w);
-        }
-        map
+        let mut items: Vec<(K, W)> = iter.into_iter().collect();
+        items.sort_by(|a, b| a.0.cmp(&b.0));
+        let entries = items
+            .chunk_by(|a, b| a.0 == b.0)
+            .filter_map(|run| {
+                let sum = match run {
+                    [(_, w)] => w.clone(),
+                    _ => W::sum(run.iter().map(|(_, w)| w)),
+                };
+                (!sum.is_zero()).then(|| (run[0].0.clone(), sum))
+            })
+            .collect();
+        SparseMap { entries }
     }
 }
 

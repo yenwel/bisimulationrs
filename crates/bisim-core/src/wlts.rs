@@ -187,7 +187,14 @@ impl<L: Eq + Hash + Clone, W: Semiring> WltsBuilder<L, W> {
         self.initial = Some(s);
     }
 
+    /// Adds a transition. Parallel transitions (same source, label and
+    /// target) are merged by [`Semiring::sum`] in [`build`](Self::build).
+    ///
+    /// # Panics
+    /// If `weight` is not a valid weight ([`Semiring::is_valid`]), e.g. a
+    /// NaN, infinite or negative rate.
     pub fn add_transition(&mut self, source: StateId, label: L, target: StateId, weight: W) {
+        assert!(weight.is_valid(), "invalid transition weight {weight:?}");
         self.ensure_states(source.index().max(target.index()) + 1);
         let label = LabelId(self.labels.intern(label));
         self.raw.push((source, label, target, weight));
@@ -197,44 +204,30 @@ impl<L: Eq + Hash + Clone, W: Semiring> WltsBuilder<L, W> {
         self.raw.sort_by_key(|&(s, l, t, _)| (s, l, t));
         let mut edges: Vec<Edge<W>> = Vec::with_capacity(self.raw.len());
         let mut offsets = vec![0u32; self.num_states + 1];
-        let mut last: Option<(StateId, LabelId, StateId)> = None;
-        for (s, label, target, weight) in self.raw {
-            if last == Some((s, label, target)) {
-                let e = edges.last_mut().expect("merged edge exists");
-                e.weight = e.weight.add(&weight);
-            } else {
-                edges.push(Edge {
-                    label,
-                    target,
-                    weight,
-                });
-                offsets[s.index() + 1] += 1;
-                last = Some((s, label, target));
+        for run in self.raw.chunk_by(|a, b| (a.0, a.1, a.2) == (b.0, b.1, b.2)) {
+            let (s, label, target, _) = &run[0];
+            let weight = match run {
+                [(.., w)] => w.clone(),
+                _ => W::sum(run.iter().map(|(.., w)| w)),
+            };
+            // Zero weights (given, or summing to zero) are not transitions.
+            if weight.is_zero() {
+                continue;
             }
+            offsets[s.index() + 1] += 1;
+            edges.push(Edge {
+                label: *label,
+                target: *target,
+                weight,
+            });
         }
-        // Weights that cancel out (or were zero to begin with) are not transitions.
-        let mut kept = Vec::with_capacity(edges.len());
-        let mut s = 0;
-        let mut seen = 0;
-        let mut counts = vec![0u32; self.num_states];
-        for e in edges {
-            while seen == offsets[s + 1] {
-                s += 1;
-                seen = 0;
-            }
-            seen += 1;
-            if !e.weight.is_zero() {
-                counts[s] += 1;
-                kept.push(e);
-            }
-        }
-        for (i, c) in counts.into_iter().enumerate() {
-            offsets[i + 1] = offsets[i] + c;
+        for i in 0..self.num_states {
+            offsets[i + 1] += offsets[i];
         }
         Wlts {
             labels: self.labels,
             offsets,
-            edges: kept,
+            edges,
             initial: self.initial,
         }
     }
@@ -323,6 +316,46 @@ mod tests {
         assert_eq!(sys.num_transitions(), 1);
         assert_eq!(sys.successors(StateId(0))[0].weight, Real(3.0));
         assert!(sys.successors(StateId(1)).is_empty());
+    }
+
+    #[test]
+    fn tiny_rates_are_kept() {
+        let mut b = NamedBuilder::<&str, &str, Real>::new();
+        b.initial("P")
+            .transition("P", "fail", "Q", Real(4e-10))
+            .transition("Q", "repair", "P", Real(1.0));
+        let (sys, _) = b.build();
+        assert_eq!(sys.num_transitions(), 2);
+        assert_eq!(sys.successors(StateId(0))[0].weight, Real(4e-10));
+    }
+
+    #[test]
+    fn parallel_transitions_merge_independently_of_order() {
+        let rates = [727511.0, 115478.57142857143, 172873.99999999997];
+        let mut b = WltsBuilder::<char, Real>::new();
+        for r in rates {
+            b.add_transition(StateId(0), 'a', StateId(2), Real(r));
+        }
+        for r in rates.iter().rev() {
+            b.add_transition(StateId(1), 'a', StateId(2), Real(*r));
+        }
+        let sys = b.build();
+        let weight = |s: u32| sys.successors(StateId(s))[0].weight.0.to_bits();
+        assert_eq!(weight(0), weight(1));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid transition weight")]
+    fn nan_weights_are_rejected() {
+        let mut b = WltsBuilder::<char, Real>::new();
+        b.add_transition(StateId(0), 'a', StateId(1), Real(f64::NAN));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid transition weight")]
+    fn negative_weights_are_rejected() {
+        let mut b = WltsBuilder::<char, Real>::new();
+        b.add_transition(StateId(0), 'a', StateId(1), Real(-1.0));
     }
 
     #[test]
