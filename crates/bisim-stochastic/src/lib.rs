@@ -11,12 +11,12 @@
 //! a count (how many copies are in some states), with ranges and p-values
 //! for comparing a plan with observed counts; [`nelder_mead`] fits rates.
 //!
-//! [`gillespie`](simulate::gillespie) and [`ensemble`](simulate::ensemble)
+//! [`gillespie`] and [`ensemble`]
 //! provide Gillespie SSA trajectories: the stochastic race semantics shared
 //! by the Bio-PEPA, PRISM and Modest simulators, for Monte-Carlo estimates
 //! when the full chain is too large to solve.
 //!
-//! [`reach`](self::reach) answers CSL/PCTL-style reachability queries:
+//! [`reach`] answers CSL/PCTL-style reachability queries:
 //! unbounded and step-bounded reachability on DTMCs by value iteration,
 //! time-bounded reachability on CTMCs by uniformisation.
 
@@ -29,7 +29,7 @@ mod simulate;
 
 pub use count::CountDistribution;
 pub use ctmc::Ctmc;
-pub use fluid::integrate;
+pub use fluid::{integrate, integrate_fixed};
 pub use optimize::nelder_mead;
 pub use reach::{MatrixError, bounded_steps, dtmc_matrix, unbounded_reach};
 pub use simulate::{LearnedRate, LogEvent, SsaStep, Trajectory, ensemble, gillespie, learn_rates};

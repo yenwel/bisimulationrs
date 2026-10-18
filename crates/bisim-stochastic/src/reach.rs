@@ -1,13 +1,13 @@
 //! Reachability solvers behind CSL/PCTL-style queries.
 //!
-//! - [`dtmc_matrix`] validates that a [`Wlts`](bisim_core::Wlts) is
+//! - [`dtmc_matrix`] validates that a [`Wlts`] is
 //!   stochastic and returns its transition matrix in sparse row form.
-//! - [`unbounded_reach`] solves `P[F target]` on a DTMC by value
-//!   iteration, with graph precomputation of probability-0 states.
+//! - [`unbounded_reach`] solves `P[F target]` on a DTMC by interval
+//!   iteration, with graph precomputation of probability-0 and -1 states.
 //! - [`bounded_steps`] answers step-bounded `P[F<=k target]` exactly.
-//! - [`Ctmc::reach_bounded`] (in `ctmc.rs`) answers time-bounded
+//! - [`Ctmc::reach_bounded`](crate::Ctmc::reach_bounded) answers time-bounded
 //!   `P[F<=t target]` by uniformisation with absorbing targets.
-//! - [`Ctmc::embedded`] exposes the jump chain, so unbounded CTMC
+//! - [`Ctmc::embedded`](crate::Ctmc::embedded) exposes the jump chain, so unbounded CTMC
 //!   reachability reduces to [`unbounded_reach`].
 
 use std::fmt;
@@ -17,6 +17,7 @@ use bisim_core::{Real, Wlts};
 
 /// Error from [`dtmc_matrix`]: the system is not a DTMC.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum MatrixError {
     /// A weight outside `[0, 1]`.
     NotProbabilistic { source: usize, weight: f64 },
@@ -73,11 +74,17 @@ pub fn dtmc_matrix<L: Eq + Hash + Clone>(
 
 /// Probability to ever hit `targets` from each state (`P[F target]`).
 ///
-/// Value iteration from below: targets stay 1, probability-0 states
-/// (found by backward graph reachability, never improved) stay 0, the
-/// rest iterate `x(s) = Σ P(s,t)·x(t)` to `tolerance` or `max_iter`.
-/// This converges to the least fixpoint, i.e. the true reachability
-/// probabilities (standard for finite DTMCs).
+/// Graph precomputation first: states that cannot reach a target have
+/// probability 0, and states that cannot reach such a state without first
+/// passing a target have probability 1. Without the second step, value
+/// iteration from below stops early on chains that almost never leave a
+/// loop (a step that changes little is not convergence).
+///
+/// The remaining states have no end component, so their equations have a
+/// unique solution, and interval iteration is sound: a lower iterate from 0
+/// and an upper iterate from 1 close in on it, and iteration stops once
+/// they are within `tolerance` of each other (or after `max_iter` sweeps).
+/// The result is the lower iterate, at most `tolerance` below the truth.
 pub fn unbounded_reach(
     p: &[Vec<(usize, f64)>],
     targets: &[bool],
@@ -86,48 +93,55 @@ pub fn unbounded_reach(
 ) -> Vec<f64> {
     assert_eq!(p.len(), targets.len());
     let n = p.len();
-    // Prob0: states that cannot reach any target along the graph.
     let mut rev: Vec<Vec<usize>> = vec![Vec::new(); n];
     for (s, row) in p.iter().enumerate() {
         for &(t, _) in row {
             rev[t].push(s);
         }
     }
-    let mut can = vec![false; n];
-    let mut stack: Vec<usize> = targets
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| **t)
-        .map(|(s, _)| s)
-        .collect();
-    while let Some(s) = stack.pop() {
-        if can[s] {
-            continue;
+    // Backward reachability from `seeds`, never passing through `blocked`.
+    let backward = |seeds: Vec<usize>, blocked: &[bool]| {
+        let mut seen = vec![false; n];
+        let mut stack = seeds;
+        while let Some(s) = stack.pop() {
+            if seen[s] {
+                continue;
+            }
+            seen[s] = true;
+            stack.extend(rev[s].iter().copied().filter(|&r| !blocked[r]));
         }
-        can[s] = true;
-        stack.extend(rev[s].iter().copied());
-    }
-    let mut x = vec![0.0; n];
-    for (i, t) in targets.iter().enumerate() {
-        if *t {
-            x[i] = 1.0;
+        seen
+    };
+    let target_states: Vec<usize> = (0..n).filter(|&s| targets[s]).collect();
+    let can = backward(target_states, &vec![false; n]);
+    // States that can reach a probability-0 state avoiding targets.
+    let zero_states: Vec<usize> = (0..n).filter(|&s| !can[s]).collect();
+    let below_one = backward(zero_states, targets);
+
+    let mut lo = vec![0.0; n];
+    let mut hi = vec![0.0; n];
+    let mut open = Vec::new();
+    for s in 0..n {
+        if targets[s] || !below_one[s] {
+            lo[s] = 1.0;
+            hi[s] = 1.0;
+        } else if can[s] {
+            hi[s] = 1.0;
+            open.push(s);
         }
     }
     for _ in 0..max_iter {
-        let mut diff: f64 = 0.0;
-        for s in 0..n {
-            if targets[s] || !can[s] {
-                continue;
-            }
-            let next: f64 = p[s].iter().map(|&(t, r)| r * x[t]).sum();
-            diff = diff.max((next - x[s]).abs());
-            x[s] = next;
+        let mut gap: f64 = 0.0;
+        for &s in &open {
+            lo[s] = p[s].iter().map(|&(t, r)| r * lo[t]).sum();
+            hi[s] = p[s].iter().map(|&(t, r)| r * hi[t]).sum::<f64>().min(1.0);
+            gap = gap.max(hi[s] - lo[s]);
         }
-        if diff < tolerance {
+        if gap < tolerance {
             break;
         }
     }
-    x
+    lo
 }
 
 /// Exact step-bounded reachability: probability to hit `targets` within
@@ -182,6 +196,38 @@ mod tests {
         // Unreachable targets stay 0 without iterating forever.
         let x = unbounded_reach(&p, &[true, false], 1e-12, 100_000);
         assert_eq!(x, vec![1.0, 0.0]);
+    }
+
+    #[test]
+    fn nearly_closed_loops_still_reach_the_target() {
+        // s0 -1-> s1, s1 -(1-e)-> s0, s1 -e-> s2 (absorbing). The target is
+        // reached with probability 1, however small e is; a stopping rule
+        // on the size of one step would report ~e instead.
+        for eps in [1e-3, 1e-6, 1e-8] {
+            let mut b = NamedBuilder::<&str, &str, Real>::new();
+            b.initial("s0")
+                .transition("s0", "a", "s1", Real(1.0))
+                .transition("s1", "a", "s0", Real(1.0 - eps))
+                .transition("s1", "a", "s2", Real(eps))
+                .transition("s2", "a", "s2", Real(1.0));
+            let (sys, names) = b.build();
+            let p = dtmc_matrix(&sys).unwrap();
+            let target: Vec<bool> = names.iter().map(|n| *n == "s2").collect();
+            let x = unbounded_reach(&p, &target, 1e-9, 1_000_000);
+            assert_eq!(x[0], 1.0, "eps {eps}");
+        }
+    }
+
+    #[test]
+    fn intermediate_probabilities_are_bracketed() {
+        // s0: 0.5 -> target, 0.4 -> s0, 0.1 -> sink: P = 0.5 / 0.6.
+        let p = vec![
+            vec![(1, 0.5), (0, 0.4), (2, 0.1)],
+            vec![(1, 1.0)],
+            vec![(2, 1.0)],
+        ];
+        let x = unbounded_reach(&p, &[false, true, false], 1e-12, 100_000);
+        assert!((x[0] - 5.0 / 6.0).abs() < 1e-11, "{}", x[0]);
     }
 
     #[test]
