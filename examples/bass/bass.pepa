@@ -1,0 +1,13 @@
+// Bass diffusion of a new product among 1000 potential customers.
+// (Parameters start with a lowercase letter; `N` would read as a component.)
+// Time unit: months. Each potential customer adopts at rate
+// p (advertising) + q * (share of adopters) (word of mouth), which is a
+// functional rate: it reads the current number of adopters.
+n_total = 1000;
+p = 0.01;
+q = 0.4;
+
+Potential = (adopt, p + q * #Adopter / n_total).Adopter;
+Adopter = 0;
+
+Potential[1000]

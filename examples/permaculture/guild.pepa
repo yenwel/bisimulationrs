@@ -1,0 +1,24 @@
+// The same bed as a guild: 60 vegetable plants with companion plantings
+// (marigold, nasturtium, alliums) and a population of 12 ladybirds.
+// Time unit: weeks.
+//
+// - Companions repel and trap aphids: infestation drops by `repel` (40 %).
+// - A ladybird alternates between Resting and Hunting; each Hunting ladybird
+//   clears infested plants at `clear` per week (the rate reads #Hunting).
+// - The ladybirds need the aphids' habitat to stay: they hunt more when
+//   there is prey around (#Infested), which makes the control self-limiting.
+infest = 0.15;
+repel = 0.40;
+damage = 0.10;
+clear = 0.015;
+hunt_start = 0.02;   // per ladybird per infested plant
+hunt_stop = 0.30;
+
+Healthy = (infest, infest * (1 - repel)).Infested;
+Infested = (cleared, clear * #Hunting).Healthy + (damage, damage).Lost;
+Lost = 0;
+
+Resting = (hunt, hunt_start * #Infested).Hunting;
+Hunting = (rest, hunt_stop).Resting;
+
+Healthy[60] || Resting[12]

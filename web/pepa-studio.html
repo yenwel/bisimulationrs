@@ -187,6 +187,27 @@ input[type="text"].date { font: inherit; font-size: 13px; font-family: var(--fon
 .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; font-family: var(--font-mono); }
 .chart .band { fill: var(--s1); opacity: 0.16; }
 .chart .obs-dot { stroke: var(--panel); stroke-width: 2; }
+
+/* Tutorial: theory and exercises (scrollable prose inside the view pane). */
+.tut { overflow: auto; flex: 1; min-height: 0; padding-right: 6px; max-width: 78ch; }
+.tut h2 { font-family: var(--font-display); font-weight: 600; font-size: 18px; margin: 0 0 4px; }
+.tut h3 { font-family: var(--font-display); font-weight: 600; font-size: 14.5px; margin: 16px 0 4px; color: var(--ink); }
+.tut p, .tut li { color: var(--ink-2); font-size: 13.5px; margin: 6px 0; }
+.tut .lede { color: var(--muted); margin-top: 0; }
+.tut code { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink); }
+.tut .block { font-family: var(--font-mono); font-size: 12.5px; background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; margin: 8px 0; white-space: pre-wrap; overflow-x: auto; color: var(--ink); }
+.tut .thm { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 6px 12px; border-radius: 0 4px 4px 0; margin: 10px 0; }
+.tut .thm b { font-family: var(--font-display); }
+.tut .ex { border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; margin: 14px 0; background: var(--panel); }
+.tut .ex h3 { margin: 0 0 4px; }
+.tut .ex ol, .tut .ex ul { margin: 6px 0; padding-left: 1.4em; }
+.tut .ex p { margin: 6px 0; }
+.tut .ex details { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 6px; }
+.tut .ex summary { cursor: pointer; font-weight: 600; font-size: 12.5px; color: var(--muted); }
+.tut .ex details p { color: var(--ink-2); }
+.tut .ex .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.tut .ref { color: var(--muted); font-size: 12px; }
+
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 
@@ -218,6 +239,7 @@ input[type="text"].date { font: inherit; font-size: 13px; font-family: var(--fon
           <button class="tab" role="tab" id="tab-time" aria-selected="false" data-view="time">Over time</button>
           <button class="tab" role="tab" id="tab-observe" aria-selected="false" data-view="observe">Observations</button>
           <button class="tab" role="tab" id="tab-compare" aria-selected="false" data-view="compare">Compare</button>
+          <button class="tab" role="tab" id="tab-tutorial" aria-selected="false" data-view="tutorial">Tutorial</button>
         </div>
       </div>
 
@@ -303,6 +325,154 @@ input[type="text"].date { font: inherit; font-size: 13px; font-family: var(--fon
           <div class="card"><h3>A</h3><div class="graph small" id="graph-a"></div></div>
           <div class="card"><h3>B</h3><div class="graph small" id="graph-b"></div></div>
         </div>
+      </div>
+
+      <div class="view" id="view-tutorial" role="tabpanel" aria-labelledby="tab-tutorial" hidden>
+        <article class="tut" id="tut-article">
+          <h2>Theoretical basis and exercises</h2>
+          <p class="lede">Graduate-level notes on what this tool computes, with runnable exercises. Each exercise loads models into the editors and opens the right tab; numbers quoted in the answers were produced by the same engine that runs in your browser. Notation: <code>⟨a⟩φ</code> “can do <code>a</code>, then <code>φ</code>”; <code>⟨a⟩=r φ</code> “does <code>a</code> at total rate <code>r</code> into states where <code>φ</code> holds”; <code>tt</code> true.</p>
+
+          <h3>1. Behaviour as coalgebra; bisimulation as greatest fixpoint</h3>
+          <p>A transition system with weights <code>W</code> (here: positive reals, or booleans if rates are ignored) is a coalgebra <code>S: X → P<sub>fin</sub>(A × W × X)</code> for the finite-powerset-with-weights functor: a state is described by <em>observing</em> one layer of behaviour. Algebra folds structure into a value; coalgebra unfolds behaviour out of a state — the dual, and the right shape for “what can this system do next?”.</p>
+          <p>Bisimulation is the coinductive notion of sameness: a relation <code>R ⊆ X × X</code> such that matched states take <code>R</code>-matching steps with equal weights. Let <code>F</code> be the functional</p>
+          <div class="block">F(R) = { (s,t) | for every a: the a-steps of s and t pair up
+                       into R-matching steps with equal weight }.</div>
+          <p><code>F</code> is monotone on the complete lattice of binary relations, so it has a greatest fixpoint by Knaster–Tarski; bisimilarity <code>~ = νF</code> is the largest symmetric fixpoint. This gives both proof principles:</p>
+          <div class="block">Coinduction (to prove s ~ t): exhibit any R with (s,t) ∈ F(R).
+Induction  (to refute s ~ t): exhibit a modal formula true of s only (§2).</div>
+
+          <h3>2. Modal logic and the Hennessy–Milner theorem</h3>
+          <p>Hennessy–Milner logic observes one step at a time: <code>φ ::= tt | ¬φ | φ ∧ φ | ⟨a⟩φ | ⟨a⟩=r φ</code>. Its semantics is a monotone predicate lifting of <code>S</code>: <code>s ⊨ ⟨a⟩φ</code> iff some <code>a</code>-step lands in a state satisfying <code>φ</code>.</p>
+          <div class="thm"><b>Theorem (Hennessy–Milner, image-finite case).</b> For systems where each state has finitely many steps: <code>s ~ t</code> iff <code>s</code> and <code>t</code> satisfy exactly the same formulas. Depth-<code>k</code> formulas characterise <code>~<sub>k</sub></code>, the <code>k</code>-step approximation of bisimilarity.</div>
+          <p>Every failed comparison in this tool returns such a formula — a <em>distinguishing</em> witness, extracted from the refinement history (§4). Its nesting depth is the depth of the modal formula, i.e. how many steps deep the models must look before they differ.</p>
+
+          <h3>3. Partition refinement</h3>
+          <p>Signature refinement computes <code>~</code> from above: start with the indiscrete partition <code>P<sub>0</sub> = {X}</code>, and split blocks until stable.</p>
+          <div class="block">signature_P(s)(a)(B) = Σ { w | s —a,w→ s′ ∈ S, s′ ∈ B }
+P′ = { states with equal signatures under P }.</div>
+          <p><code>~<sub>k</sub></code> is exactly the partition produced after <code>k</code> rounds, bisimilarity is the fixpoint, and on a finite system the sequence stabilises (each strict round at least doubles the block count of some state). The fast backend here is worklist-based (CoPaR-style): only predecessors of split blocks recompute signatures, cached per state, and the largest part of a split keeps its identity — Hopcroft’s bound, giving <code>O(m log n)</code> on <code>m</code> transitions and <code>n</code> states in practice.</p>
+
+          <h3>4. Distinguishing formulas as witnesses</h3>
+          <p>When the refinement history separates <code>s</code> from <code>t</code> at round <code>k</code>, the block labels around the split assemble into a formula of depth <code>k</code> true of <code>s</code>, false of <code>t</code>: each round contributes one modal operator per separating action, with rate conditions <code>⟨a⟩=r</code> when the split came from unequal weights. The formula is a certificate: you can check it by hand against the two transition lists, independent of the algorithm.</p>
+
+          <h3>5. Simulation: the one-sided preorder</h3>
+          <p>Simulation drops the “match back” clause: <code>s ≼ t</code> when <code>t</code> can mimic every step of <code>s</code> (into states simulating the targets). It is again <code>νF</code> for a monotone functional, but on arbitrary — not necessarily symmetric — relations, so it is a preorder, and the induced equivalence is <em>mutual simulation</em>. Simulation is a closure operator (reflexive, monotone, idempotent); its modal characterisation uses only the positive fragment (no negation): <code>s ≼ t</code> iff <code>t</code> satisfies every formula <code>s</code> does, for negation-free <code>φ</code>. Note <code>mutual simulation ⊋ bisimilarity</code> can hold strictly, which is why this tool reports both.</p>
+
+          <h3>6. The bisimulation game</h3>
+          <p>Equivalently, bisimilarity has a game characterisation (Stirling): Spoiler and Duplicator move tokens on the two models; from <code>(s,t)</code>, Spoiler picks a step on either side, Duplicator must answer with a matching step; a matching pair moves the tokens to the targets. Duplicator wins infinite plays (the coinductive clause), Spoiler wins by reaching unmatched positions.</p>
+          <div class="thm"><b>Theorem.</b> <code>s ~ t</code> iff Duplicator has a winning strategy from <code>(s,t)</code>.</div>
+          <p>The game solver in this repository explores pairs on demand from the initial pair — it can refute bisimilarity by finding a shallow Spoiler win without refining the whole product system. Budgets turn the algorithm into a sound three-way answer: proven within budget (<code>Holds</code>), refuted (<code>Violated</code>, with a modal witness), or <code>Unknown</code>/<code>HoldsUpTo</code> when the budget stops the search — never an unsound verdict.</p>
+
+          <h3>7. From branching to probabilities: lumping, uniformisation</h3>
+          <p>Forget action labels, sum weights per state pair: a rate-labelled system yields a CTMC with generator <code>Q</code> (<code>q<sub>st</sub></code> = total rate <code>s→t</code>, <code>q<sub>ss</sub></code> = −exit rate). The tool’s “lumped” view is the quotient by the coarsest <em>ordinary lumpable</em> partition: for all <code>s,s′</code> in a block <code>B</code> and <code>t,t′</code> in a block <code>C</code>, the rates into <code>C</code> agree. Ordinary lumpability is precisely the condition that the quotient chain is again Markovian — and, as the tests assert, it coincides with Markovian bisimulation, the weight-sensitive refinement of §3.</p>
+          <div class="thm"><b>Uniformisation (Jensen).</b> For <code>Λ ≥ max<sub>s</sub> exit(s)</code>, <code>P = I + Q/Λ</code> is stochastic (self-loops allowed) and <code>p(t) = Σ<sub>k</sub> e<sup>−Λt</sup>(Λt)<sup>k</sup>/k! · p<sub>0</sub>P<sup>k</sup></code>. Same generator, same marginals; the series is truncated at machine precision.</div>
+          <p>Steady state is the left kernel <code>πQ = 0</code> — computed by power iteration on <code>P</code>, which preserves stationary distributions because uniformisation is a Poisson embedding.</p>
+
+          <h3>8. PEPA: SOS for stochastic process algebras</h3>
+          <p>PEPA (Hillston) builds large systems compositionally; structural operational semantics derives the coalgebra from the term. The cooperative law is the analytic core. With apparent rate <code>ra<sub>P</sub>(a)</code> = sum of <code>a</code>-rates offered by <code>P</code>, two active offers <code>(a,r<sub>1</sub>).P′</code>, <code>(a,r<sub>2</sub>).Q′</code> under <code>⟨a⟩</code>-cooperation run at</p>
+          <div class="block">rate = (r₁ / ra_P) · (r₂ / ra_Q) · min(ra_P, ra_Q).</div>
+          <p>The fractions split the joint activity between the partners; the slower side sets the pace (a rendezvous, not a product). A passive partner (rate <code>⊤</code>, the algebraic top) is no bottleneck: the law reduces to the active side’s rate. This is why the vet in the herd example does not throttle recovery. Functional rates <code>(a, f(#P)).P′</code> evaluate <code>f</code> in the global state; for <code>f</code> linear in population counts the derived rates are exactly Gillespie’s mass-action propensities, so the same model yields a Markov chain and an ODE with no manual translation. The algebra refuses mixed active/passive offers in one array — its apparent rate would be undefined — which is precisely the situation functional rates replace.</p>
+
+          <h3>9. Fluid limits</h3>
+          <p>For populations of size <code>n</code>, the law of large numbers for CTMCs (Kurtz) says the occupancy process <code>X<sup>n</sup>(t)/n</code> converges on finite horizons to the deterministic solution of <code>ẋ = drift(x)</code>, where each move contributes rate(x) × stoichiometry. The fluid engine reuses the SOS derivation in floats to assemble this drift and integrates with RK4 (the tests verify 4th-order convergence: halving the step cuts the error sixteenfold). Fluid answers scale where enumeration cannot, and conservation of totals falls out of the stoichiometry.</p>
+
+          <h3>10. Approximate bisimulation</h3>
+          <p>Measured rates are never exactly equal, and exact refinement shatters under noise. <code>(ε, δ)</code>-bisimulation (Spork, Baier, Katoen) relaxes the two quantitative obligations: class-sum rates match within <code>ε</code> (absolute) and exit rates within <code>δ</code> (relative). The checker reports an approximate verdict with a behavioural distance instead of forcing equality — a quasi-lumpability check on a pair of states, with tolerance grouping documented as non-transitive (it is a perturbation bound, not a congruence).</p>
+
+          <h3>Exercises</h3>
+          <p class="lede">Each exercise states a claim, loads the models, and asks you to check it in the tool. Answers are folded away; open them after you have tried the claim.</p>
+
+          <div class="ex">
+            <h3>Exercise 1 — Refine the cycle product by hand</h3>
+            <p>Two independent copies of a three-step cycle (interleaving <code>‖</code>, each copy autonomous). Write the global states as phase pairs, list each state’s outgoing signature (which actions, how many), and predict the fixpoint partition before looking.</p>
+            <div class="row"><button class="btn" data-tut="cycleA">Load in A</button></div>
+            <p>Then: open <b>State space</b>, and toggle <b>Full → Lump</b>.</p>
+            <details><summary>Answer</summary>
+              <p>9 states, 18 transitions, 6 blocks after lumping. Round 1 already separates states by which <em>multiset</em> of actions they offer; the pairs <code>{(1,2),(2,1)}</code>, <code>{(1,3),(3,1)}</code>, <code>{(2,3),(3,2)}</code> survive to the fixpoint, while the three diagonal states <code>(1,1),(2,2),(3,3)</code> stay distinct — <code>⟨start⟩tt</code> holds only on <code>(1,1)</code>. A tempting “relative offset” merge into 3 blocks is wrong: offsets ignore that actions are phase-labelled, and the modal formulas of §2 detect the difference in one step. The tool colours the 6 blocks in the full graph when you toggle back.</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 2 — Cooperation arithmetic and steady state</h3>
+            <p>Two clients share a server on <code>req</code>: each client offers <code>req</code> at rate 2, the server at rate 3, plus each client <code>done</code> at 1 after waiting. Using the cooperation law, compute the total <code>req</code>-rate when 2 clients are ready, and when 1 is. Then solve <code>πQ = 0</code> for the three states by hand.</p>
+            <div class="row"><button class="btn" data-tut="clients">Load in A</button></div>
+            <p>Check the edge labels in <b>State space</b> and the steady-state column in the table (click a state to highlight it).</p>
+            <details><summary>Answer</summary>
+              <p>Two ready clients: apparent rates <code>ra<sub>C</sub> = 4</code>, <code>ra<sub>S</sub> = 3</code>; each client-server pair runs at <code>(2/4)(3/3)·min(4,3) = 1.5</code>, so the total edge <code>req</code> rate is <code>3.0</code> — the server is the bottleneck. One ready client: <code>ra<sub>C</sub> = 2</code>, rate <code>(2/2)(3/3)·min(2,3) = 2.0</code> — now the client side is. The balance equations <code>3π₀ = π₁</code>, <code>2π₁ = 2π₂</code> give <code>π = (1/7, 3/7, 3/7)</code> ≈ (0.143, 0.429, 0.429), matching the tool to six digits.</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 3 — A passive partner is never the bottleneck</h3>
+            <p>In the herd model the vet waits passively (<code>infty</code>) on <code>healing</code>. Predict the total <code>healing</code>-, <code>disease</code>- and <code>death</code>-rates in the states with 1, 2 and 3 sick animals, from the cooperation law and independence of the healthy animals.</p>
+            <div class="row"><button class="btn" data-tut="herd">Load in A</button></div>
+            <p>Click through the states in <b>State space</b> and read the edge rates.</p>
+            <details><summary>Answer</summary>
+              <p>Healing: <code>k · 0.1</code> = 0.10, 0.20, 0.30 — with a passive partner the law reduces to the active side’s own rate, so the single vet can serve any number of animals without throttling. Disease: <code>k · 0.02</code> for <code>k</code> healthy (0.06 at the initial state); death: <code>k · 0.01</code>. Every total is a sum of independent exponential clocks — the state-independent rate structure is exactly what makes the quotient Markovian here… except that the vet-free variant of Exercise 4 breaks it.</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 4 — Rates ignored or rates that matter</h3>
+            <p>Compare the server model with a variant whose service rate is 6 instead of 3. Which of the four verdicts should hold, and why? Predict the distinguishing formula for the failed one.</p>
+            <div class="row"><button class="btn" data-tut="clientsVsFast">Compare both</button></div>
+            <p>In <b>Compare</b>, read the verdicts; click the failing one to see the formula highlighted on both graphs.</p>
+            <details><summary>Answer</summary>
+              <p>Branching is identical (same actions, same structure), so bisimulation, mutual simulation and simulation all hold; only Markovian bisimulation fails, because the initial states do <code>req</code> at different total rates. Witness: <code>⟨req⟩=3 tt</code> — true of the rate-3 model, false of the rate-6 model. This is the practical dividing line: use the rate-blind verdicts to compare <em>designs</em>, the rate-sensitive one to compare <em>parameters</em>.</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 5 — Reading a distinguishing formula</h3>
+            <p>Herd health versus the same model with the vet removed. One of the formulas below is produced by the tool; derive it yourself first: what can A’s initial state do in two steps that B’s cannot?</p>
+            <div class="row"><button class="btn" data-tut="herdVsNoVet">Compare both</button></div>
+            <p>Open <b>Compare</b> and select the failing verdict; the states satisfying the formula are highlighted.</p>
+            <details><summary>Answer</summary>
+              <p><code>⟨disease⟩⟨healing⟩tt</code>: in A, disease then healing is possible (the vet makes healing possible at all); in B, no state reachable in two steps offers <code>healing</code>. The rate-sensitive analogue is <code>⟨disease⟩=0.06 ⟨healing⟩=0.1 tt</code>. Note the depth is 2 = the refinement round at which the initial states’ blocks separate — the number in the formula is literally the history of §3.</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 6 — An algebraic law, verified by four algorithms</h3>
+            <p>Claim: <code>P1 ‖ P1</code> and <code>P1[2]</code> denote the same behaviour — interleaving sugar versus array syntax. State what each of the four verdicts would need to show, then check.</p>
+            <div class="row"><button class="btn" data-tut="cycleVsArray">Compare both</button></div>
+            <details><summary>Answer</summary>
+              <p>All four verdicts hold: the models are Markovian bisimilar. The parser desugars arrays into independent copies, so this is a sanity law of the syntax — but the tool proves it end-to-end anyway (derivation, refinement, rate comparison), which is the cheap way to validate an implementation of an algebraic rewrite.</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 7 — Symmetry reduction and where it stops</h3>
+            <p>Two identical two-state components versus two whose <code>a</code>-rates differ (1 and 2). Predict the number of bisimulation blocks in each case, and name the exact hypothesis of ordinary lumpability that fails in the second.</p>
+            <div class="row"><button class="btn" data-tut="symmetry">Load in A</button></div>
+            <p>Check <b>Full</b> versus <b>Lump</b> state counts (the full graph even lists the deadlock in duplicate — one per copy — which lumping identifies).</p>
+            <details><summary>Answer</summary>
+              <p>Identical: 16 states → 3 blocks {both cycling, one dead, both dead}. Mismatched rates: 16 → 6 — the cross-pairs stop matching because rates into the same block disagree, exactly the row-sum condition of §7: states <code>s, s′</code> in a block must send equal total rate into every block, and the two copies no longer do. Symmetry reduction is free redundancy removal <em>within</em> equal-parameter groups; parameter heterogeneity is what makes population models blow up.</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 8 — Mass action from the syntax</h3>
+            <p>The functional model <code>S = (infect, 0.3 * #I).I</code> with 3 susceptibles and 1 infected: compute the total <code>infect</code> rate at the initial state and at <code>(S:2, I:2)</code>, and connect it to the mass-action term <code>βSI</code> of the SIR ODE.</p>
+            <div class="row"><button class="btn" data-tut="funcSIR">Load in A</button></div>
+            <p>Read the rates in <b>State space</b>; then open <b>Over time</b> (set the unit to seconds) for the exact transient.</p>
+            <details><summary>Answer</summary>
+              <p>Initial: each of the 3 S-copies offers <code>0.3 · #I = 0.3</code>, total <code>0.9 = 0.3 · 3 · 1 = βSI</code>. At <code>(2,2)</code>: <code>0.3 · 2 · 2 = 1.2</code>. The derived chain <em>is</em> the stochastic counterpart of <code>Ṡ = −βSI</code> — one model, two semantics (20 full states lump to 11 count-states, and the fluid limit of §9 is the same drift integrated deterministically).</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 9 — Transient to steady state</h3>
+            <p>In the herd model <code>Dead</code> is absorbing. Predict the long-run probability of death from the structure of the graph (no computation), then verify against both the transient curve and the steady-state column.</p>
+            <div class="row"><button class="btn" data-tut="herdTime">Load (Over time)</button></div>
+            <p>Set the horizon to 100 s; hover the chart at the far right, and compare with the steady column of the Dead state in the table.</p>
+            <details><summary>Answer</summary>
+              <p>From every non-dead state there is a path to <code>Dead</code> and no path out, so <code>Dead</code> is the unique closed class: <code>P(dead) → 1</code> and the steady-state mass of every other state is 0. Both the uniformisation series at <code>t = 100</code> and <code>π</code> agree to displayed precision. (The vet delays the day of death; it does not change the limit — compare with Exercise 5’s transient formulas.)</p>
+            </details>
+          </div>
+
+          <p class="ref">Background: Sangiorgi, <em>Introduction to Bisimulation and Coinduction</em> (2012); Larsen, “Modal specifications” (1991); Hillston, <em>A Compositional Approach to Performance Modelling</em> (1996); Baier &amp; Katoen, <em>Principles of Model Checking</em> (2008, ch. 10, 24); Jensen, “Monotonicity in performance evaluation” (1993); Spork, Baier, Katoen, “Dissimilarity assertions for probabilistic model checking” (2024). The Rust sources behind each claim: <code>bisim-refine</code> (§3–6, 10), <code>bisim-algebra/pepa</code> (§8–9), <code>bisim-stochastic</code> (§7, 9).</p>
+        </article>
       </div>
     </section>
   </main>
@@ -397,6 +567,78 @@ P3 = (stop, 1).P1;
 
 P1[2]`,
 };
+
+// ---------- Tutorial exercise models (all numbers in the Tutorial tab
+// were checked against these via the same engine) ----------
+const TUT_CYCLE = `r = 1;
+P1 = (start, r).P2;
+P2 = (run, r).P3;
+P3 = (stop, r).P1;
+
+P1 || P1`;
+const TUT_ARRAY = TUT_CYCLE.replace("P1 || P1", "P1[2]");
+const TUT_CLIENTS = `r_req = 2;
+r_think = 1;
+r_serve = 3;
+
+Client = (req, r_req).Wait;
+Wait   = (done, r_think).Client;
+Server = (req, r_serve).Server;
+
+Client[2] <req> Server`;
+const TUT_HERD = `r_disease = 0.02;
+r_heal = 0.1;
+r_death = 0.01;
+
+Healthy = (disease, r_disease).Sick;
+Sick    = (healing, r_heal).Healthy + (death, r_death).Dead;
+Dead    = 0;
+Vet     = (healing, infty).Vet;
+
+Healthy[3] <healing> Vet`;
+
+const TUTORIAL_MODELS = {
+  cycleA: { a: TUT_CYCLE, view: "space", unit: "second" },
+  clients: { a: TUT_CLIENTS, view: "space", unit: "second" },
+  clientsVsFast: { a: TUT_CLIENTS, b: TUT_CLIENTS.replace("r_serve = 3", "r_serve = 6"), view: "compare", unit: "second" },
+  herd: { a: TUT_HERD, view: "space", unit: "second" },
+  herdVsNoVet: {
+    a: TUT_HERD,
+    b: `r_disease = 0.02;
+r_death = 0.01;
+
+Healthy = (disease, r_disease).Sick;
+Sick    = (death, r_death).Dead;
+Dead    = 0;
+
+Healthy[3]`,
+    view: "compare", unit: "second",
+  },
+  cycleVsArray: { a: TUT_CYCLE, b: TUT_ARRAY, view: "compare", unit: "second" },
+  symmetry: { a: `P = (a, 1).Q + (b, 1).0;
+Q = (a, 1).P + (b, 1).0;
+
+P || P`, view: "space", unit: "second" },
+  funcSIR: { a: `S = (infect, 0.3 * #I).I;
+I = (recover, 0.1).R;
+R = 0;
+
+S[3] || I`, view: "space", unit: "second" },
+  herdTime: { a: TUT_HERD, view: "time", unit: "second", horizon: 100 },
+};
+
+document.getElementById("view-tutorial").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-tut]");
+  if (!btn) return;
+  const t = TUTORIAL_MODELS[btn.dataset.tut];
+  if (!t) return;
+  if (t.a != null) { editorA.value = t.a; store.set("a", t.a); exampleSel.value = ""; }
+  if (t.b != null) { editorB.value = t.b; store.set("b", t.b); presetSel.value = ""; }
+  if (t.unit) setUnit(t.unit);
+  if (t.horizon) document.getElementById("horizon").value = t.horizon;
+  setView(t.view || "space");
+  if (t.b != null) { runA(); scheduleCompare(); } else schedule();
+});
 
 // ---------- Engine (Rust → WebAssembly, JSON in/out) ----------
 let wasm = null;
@@ -953,7 +1195,7 @@ document.getElementById("unit").addEventListener("change", (e) => { setUnit(e.ta
 function setView(view) {
   activeView = view;
   document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === view)));
-  for (const v of ["space", "components", "time", "observe", "compare"]) document.getElementById("view-" + v).hidden = v !== view;
+  for (const v of ["space", "components", "time", "observe", "compare", "tutorial"]) document.getElementById("view-" + v).hidden = v !== view;
   store.set("view", view);
   renderView();
 }
@@ -1020,7 +1262,7 @@ new MutationObserver(reTheme).observe(document.documentElement, { attributes: tr
     return;
   }
   const savedView = store.get("view");
-  if (savedView && ["space", "components", "time", "observe", "compare"].includes(savedView)) activeView = savedView;
+  if (savedView && ["space", "components", "time", "observe", "compare", "tutorial"].includes(savedView)) activeView = savedView;
   setView(activeView);
   runA();
 })();

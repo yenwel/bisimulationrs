@@ -1,0 +1,11 @@
+// A bed of 60 vegetable plants with nothing else around them. Time unit:
+// weeks. Aphids infest a plant at 0.15 per week; an infested plant is
+// eventually lost (0.10 per week) and nothing clears the aphids.
+infest = 0.15;
+damage = 0.10;
+
+Healthy = (infest, infest).Infested;
+Infested = (damage, damage).Lost;
+Lost = 0;
+
+Healthy[60]

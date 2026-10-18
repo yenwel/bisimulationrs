@@ -1,0 +1,18 @@
+// Coral reef under heat waves. Time unit: weeks.
+// The environment alternates between Calm and Heat; each coral reads it
+// with a species count (#Heat is 1 during a heat wave, else 0), so stress
+// rates apply per coral.
+heat_on = 0.02;    // a heat wave starts about every 50 weeks
+heat_off = 0.10;   // and lasts about 10 weeks
+bleach = 0.40;     // bleaching rate per coral during a heat wave
+recover = 0.05;    // recovery rate per bleached coral in calm water
+die = 0.12;        // death rate per bleached coral during a heat wave
+
+Calm = (warm, heat_on).Heat;
+Heat = (cool, heat_off).Calm;
+
+Healthy = (bleach, bleach * #Heat).Bleached;
+Bleached = (recover, recover * #Calm).Healthy + (die, die * #Heat).Dead;
+Dead = 0;
+
+Healthy[40] || Calm[1]

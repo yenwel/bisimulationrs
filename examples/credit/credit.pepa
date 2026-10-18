@@ -1,0 +1,8 @@
+// Credit rating migration of a portfolio of 100 firms. Time unit: years.
+// Ratings move one notch at a time; Default is absorbing.
+Strong = (downgrade_s, 0.08).Medium;
+Medium = (upgrade_m, 0.10).Strong + (downgrade_m, 0.12).Weak;
+Weak = (upgrade_w, 0.15).Medium + (default, 0.10).Default;
+Default = 0;
+
+Strong[100]

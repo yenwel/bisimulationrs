@@ -1,0 +1,18 @@
+// Antibiotic cycling on a bacterial population. Time unit: days.
+// Treatment is on half of the time. Susceptible cells are killed only while
+// it is on (#On is 1 then); they can mutate to resistant, and resistance
+// slowly reverts without the drug (a fitness cost).
+treat_on = 0.5;
+treat_off = 0.5;
+kill = 0.4;
+mutate = 0.03;
+revert = 0.02;
+
+Off = (start, treat_on).On;
+On = (stop, treat_off).Off;
+
+Susceptible = (die, kill * #On).Dead + (mutate, mutate).Resistant;
+Resistant = (revert, revert).Susceptible;
+Dead = 0;
+
+Susceptible[200] || Off[1]
