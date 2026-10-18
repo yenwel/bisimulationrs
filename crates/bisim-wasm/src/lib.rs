@@ -18,10 +18,9 @@ thread_local! {
 /// Allocates `len` bytes for a request.
 #[unsafe(no_mangle)]
 pub extern "C" fn alloc(len: usize) -> *mut u8 {
-    let mut buf = Vec::<u8>::with_capacity(len);
-    let ptr = buf.as_mut_ptr();
-    std::mem::forget(buf);
-    ptr
+    // A boxed slice has exactly `len` bytes of capacity, which `call` relies
+    // on (`Vec::with_capacity` may allocate more).
+    Box::into_raw(vec![0u8; len].into_boxed_slice()).cast::<u8>()
 }
 
 /// Handles the request in `ptr[..len]` (allocated by [`alloc`], freed here).
@@ -31,10 +30,19 @@ pub extern "C" fn alloc(len: usize) -> *mut u8 {
 /// initialised bytes, and not be used again after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn call(ptr: *mut u8, len: usize) -> usize {
-    // SAFETY: `ptr` came from `alloc(len)` and the host wrote `len` bytes.
-    let bytes = unsafe { Vec::from_raw_parts(ptr, len, len) };
-    let request = String::from_utf8_lossy(&bytes);
-    let response = bisim_api::handle_json(&request).into_bytes();
+    // SAFETY: `ptr` came from `alloc(len)`, a boxed slice of `len` bytes.
+    let bytes = unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len)) };
+    // Invalid UTF-8 is an error: rewriting it with U+FFFD would silently
+    // analyse a different model than the one the caller sent. (A panic below
+    // traps the whole module: wasm32-unknown-unknown aborts on panic, so
+    // `catch_unwind` could not help; the API avoids panics on input instead.)
+    let response = match std::str::from_utf8(&bytes) {
+        Ok(request) => bisim_api::handle_json(request),
+        Err(e) => format!(
+            r#"{{"error":[{{"severity":"error","line":0,"column":0,"message":"request is not valid UTF-8: {e}"}}]}}"#
+        ),
+    }
+    .into_bytes();
     let n = response.len();
     RESPONSE.with(|r| *r.borrow_mut() = response);
     n
@@ -44,4 +52,30 @@ pub unsafe extern "C" fn call(ptr: *mut u8, len: usize) -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn response_ptr() -> *const u8 {
     RESPONSE.with(|r| r.borrow().as_ptr())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn roundtrip(request: &[u8]) -> String {
+        let ptr = alloc(request.len());
+        // SAFETY: `alloc` returned `request.len()` writable bytes.
+        unsafe { std::ptr::copy_nonoverlapping(request.as_ptr(), ptr, request.len()) };
+        // SAFETY: `ptr` came from `alloc(len)` and holds `len` bytes.
+        let n = unsafe { call(ptr, request.len()) };
+        let out = RESPONSE.with(|r| r.borrow()[..n].to_vec());
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn invalid_utf8_is_rejected_and_valid_requests_work() {
+        let bad = roundtrip(&[b'{', 0xFF, 0xFE, b'}']);
+        assert!(bad.contains("not valid UTF-8"), "{bad}");
+        let ok = roundtrip(br#"{"op":"check","source":"P = (a, 1).P; P"}"#);
+        assert!(ok.contains("ok") || ok.contains("error"), "{ok}");
+        // Empty request: a zero-length allocation is still valid to free.
+        let empty = roundtrip(b"");
+        assert!(!empty.is_empty());
+    }
 }

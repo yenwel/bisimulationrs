@@ -15,9 +15,15 @@ use bisim_algebra::prism::{
     ModelKind, PrismDerived, PrismError, PrismModel, Query, Until, parse_prism, parse_query,
 };
 use bisim_core::{Formula, Lts, Partition, Real, Semiring, StateId, Verdict, Wlts};
-use bisim_refine::{compare as compare_lts, distinguishing_formula, refine, refine_fast};
+use bisim_refine::{compare as compare_lts, refine_fast};
 use bisim_stochastic::{Ctmc, bounded_steps, dtmc_matrix, unbounded_reach};
 use serde::Serialize;
+
+/// Most steps of size `dt` a fluid request may need.
+const MAX_FLUID_STEPS: f64 = 5e6;
+
+/// Largest step bound accepted in `F<=k` queries (a linear-time loop).
+const MAX_STEP_BOUND: f64 = 1e8;
 
 mod engine;
 mod observe;
@@ -30,7 +36,7 @@ pub use observe::{
 #[cfg(feature = "json")]
 mod json;
 #[cfg(feature = "json")]
-pub use json::handle_json;
+pub use json::{PROTOCOL_VERSION, handle_json};
 
 /// An error or warning in a model, with a 1-based position when known
 /// (`line = 0` means the problem is not tied to one place).
@@ -592,12 +598,14 @@ fn query_model(
                 unbounded_reach(&p, &targets, 1e-12, 1_000_000)[init.index()]
             }
             (ModelKind::Dtmc, Until::Bounded(k)) => {
-                if k.fract() != 0.0 || *k < 0.0 {
+                if k.fract() != 0.0 || *k < 0.0 || *k > MAX_STEP_BOUND {
                     return Err(vec![Diagnostic {
                         severity: Severity::Error,
                         line: 0,
                         column: 0,
-                        message: format!("DTMC step bounds must be whole steps, got {k}"),
+                        message: format!(
+                            "DTMC step bounds must be whole steps up to {MAX_STEP_BOUND}, got {k}"
+                        ),
                     }]);
                 }
                 let p = dtmc_matrix(lts).map_err(|e| {
@@ -615,12 +623,12 @@ fn query_model(
                 unbounded_reach(&p, &targets, 1e-12, 1_000_000)[init.index()]
             }
             (_, Until::Bounded(t)) => {
-                if *t < 0.0 {
+                if !t.is_finite() || *t < 0.0 {
                     return Err(vec![Diagnostic {
                         severity: Severity::Error,
                         line: 0,
                         column: 0,
-                        message: format!("time bounds must be non-negative, got {t}"),
+                        message: format!("time bounds must be finite and non-negative, got {t}"),
                     }]);
                 }
                 ctmc.reach_bounded(&ctmc.initial_distribution(), &targets, *t, 1e-10)
@@ -688,6 +696,17 @@ pub fn fluid(
             line: 0,
             column: 0,
             message: format!("dt must be positive and finite, got {dt}"),
+        }]);
+    }
+    let horizon = times.iter().copied().fold(0.0, f64::max);
+    if horizon / dt > MAX_FLUID_STEPS {
+        return Err(vec![Diagnostic {
+            severity: Severity::Error,
+            line: 0,
+            column: 0,
+            message: format!(
+                "dt = {dt} would take more than {MAX_FLUID_STEPS} steps to reach {horizon}; use a larger dt"
+            ),
         }]);
     }
     let model = parse_pepa(source).map_err(|e| vec![diagnostic(&e)])?;
@@ -766,6 +785,9 @@ pub fn transient(
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VerdictView {
     pub holds: bool,
+    /// `false` when the check was skipped (`holds` is then meaningless; see
+    /// `explanation`).
+    pub checked: bool,
     /// A formula true in A's initial state and false in B's (or the
     /// reverse when `formula_holds_in` says so).
     pub formula: Option<String>,
@@ -799,6 +821,25 @@ pub struct CompareError {
     pub b: Vec<Diagnostic>,
 }
 
+/// Most bisimulation classes (both models together) for which simulation is
+/// checked: the preorder is a table with one entry per pair of classes.
+const SIMULATION_LIMIT: usize = 2_000;
+
+fn skipped(what: &str, states: usize) -> VerdictView {
+    VerdictView {
+        holds: false,
+        checked: false,
+        formula: None,
+        formula_holds_in: None,
+        satisfied_in_a: Vec::new(),
+        satisfied_in_b: Vec::new(),
+        explanation: format!(
+            "Not checked: {what} needs a table of every pair of states, and the two models \
+             have {states} distinct behaviours together (the limit is {SIMULATION_LIMIT})."
+        ),
+    }
+}
+
 const READING_GUIDE: &str = "Read ⟨a⟩φ as \"can do a, then satisfy φ\", ⟨a⟩=r φ as \
      \"does a at total rate r per second into states satisfying φ\", ¬ as \"not\" and tt as \"true\".";
 
@@ -821,13 +862,15 @@ where
                 ("A", "B")
             };
             let sat = |sys: &Wlts<L, W>| {
-                sys.states()
-                    .filter(|s| witness.holds(sys, *s))
+                witness
+                    .satisfying(sys)
+                    .into_iter()
                     .map(StateId::index)
                     .collect()
             };
             VerdictView {
                 holds: false,
+                checked: true,
                 formula: Some(witness.to_string()),
                 formula_holds_in: Some(yes.to_owned()),
                 satisfied_in_a: sat(a),
@@ -839,6 +882,7 @@ where
         }
         _ => VerdictView {
             holds: true,
+            checked: true,
             formula: None,
             formula_holds_in: None,
             satisfied_in_a: Vec::new(),
@@ -886,22 +930,38 @@ pub fn compare(
         }
     };
 
-    // Markovian bisimilarity on the disjoint union.
-    let union = a.disjoint_union(&b);
-    let t = StateId(
-        b.initial().expect("derived models have an initial state").0 + a.num_states() as u32,
-    );
-    let s = a.initial().expect("derived models have an initial state");
-    let r = refine(&union, None);
-    let markovian = match distinguishing_formula(&union, &r, s, t) {
-        None => Verdict::Holds,
-        Some(witness) => Verdict::Violated { witness },
-    };
+    // Markovian bisimilarity of the initial states.
+    let markovian = bisim_refine::bisimilar(&a, &b);
 
     // Untimed comparisons forget rates.
     let untimed =
         |sys: &Wlts<Act<Sym>, Real>| -> Lts<Act<Sym>> { sys.map_weights(|w| !w.is_zero()) };
     let (ua, ub) = (untimed(&a), untimed(&b));
+    // Simulation is tabled per bisimulation class, so count those.
+    let states = refine_fast(&ua.disjoint_union(&ub), None).num_blocks();
+    if states > SIMULATION_LIMIT {
+        // Bisimilarity scales (worklist refinement); simulation does not.
+        let bisimilar = bisim_refine::bisimilar(&ua, &ub);
+        return Ok(Comparison {
+            markovian_bisimilar: verdict_view(
+                &markovian,
+                &a,
+                &b,
+                false,
+                "Markovian bisimilar (same behaviour and rates)",
+            ),
+            b_simulates_a: skipped("simulation", states),
+            mutually_similar: skipped("mutual similarity", states),
+            bisimilar: verdict_view(
+                &bisimilar,
+                &ua,
+                &ub,
+                false,
+                "bisimilar when rates are ignored",
+            ),
+            note,
+        });
+    }
     let v = compare_lts(&ua, &ub);
     let reverse = matches!(
         (&v.right_simulates_left, &v.mutually_similar),

@@ -32,7 +32,7 @@ use crate::{
 };
 
 #[derive(Deserialize)]
-#[serde(tag = "op", rename_all = "lowercase")]
+#[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
 enum Request {
     Check {
         source: String,
@@ -109,10 +109,14 @@ enum Request {
     },
 }
 
+/// Largest `max_states` a JSON request may ask for. Running out of memory
+/// aborts the host process (a browser tab, a Python or R session).
+pub const MAX_JSON_STATES: usize = 1_000_000;
+
 fn options(max_states: Option<usize>) -> Options {
     let mut o = Options::default();
     if let Some(m) = max_states {
-        o.max_states = m;
+        o.max_states = m.min(MAX_JSON_STATES);
     }
     o
 }
@@ -124,9 +128,32 @@ fn respond<T: serde::Serialize, E: serde::Serialize>(r: Result<T, E>) -> Value {
     }
 }
 
+/// Version of the request/response protocol. Requests may state the
+/// version they were written for (`"version": 1`); a different one is
+/// refused rather than guessed at. Responses carry the version too.
+pub const PROTOCOL_VERSION: u64 = 1;
+
 /// Handles one JSON request and returns the JSON response.
 pub fn handle_json(request: &str) -> String {
-    let response = match serde_json::from_str::<Request>(request) {
+    let mut response = handle(request);
+    if let Value::Object(map) = &mut response {
+        map.insert("version".to_owned(), json!(PROTOCOL_VERSION));
+    }
+    response.to_string()
+}
+
+fn handle(request: &str) -> Value {
+    let parsed = serde_json::from_str::<Value>(request).and_then(|mut v| {
+        if let Some(Value::Number(n)) = v.as_object_mut().and_then(|o| o.remove("version")) {
+            if n.as_u64() != Some(PROTOCOL_VERSION) {
+                return Err(serde::de::Error::custom(format!(
+                    "protocol version {n} is not supported (this is version {PROTOCOL_VERSION})"
+                )));
+            }
+        }
+        serde_json::from_value::<Request>(v)
+    });
+    match parsed {
         Err(e) => json!({ "error": [{ "severity": "error", "line": 0, "column": 0,
                                      "message": format!("invalid request: {e}") }] }),
         Ok(Request::Check { source }) => json!({ "ok": check(&source) }),
@@ -207,8 +234,7 @@ pub fn handle_json(request: &str) -> String {
             dt.unwrap_or(0.01),
             options(max_states),
         )),
-    };
-    response.to_string()
+    }
 }
 
 #[cfg(test)]

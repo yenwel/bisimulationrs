@@ -247,3 +247,105 @@ fn analyse_jani_matches_prism() {
     .unwrap();
     assert_eq!(a.full.states.len(), p.full.states.len());
 }
+
+#[test]
+fn query_bounds_that_would_hang_are_rejected() {
+    let model = "ctmc
+        module m
+          s : [0..1] init 0;
+          [] s=0 -> 1.5 : (s'=1);
+          [] s=1 -> 2.5 : (s'=0);
+        endmodule";
+    // 1e400 parses as infinity.
+    let err = query_prism(model, "P=? [F<=1e400 s=1]", Options::default()).unwrap_err();
+    assert!(err[0].message.contains("finite"), "{}", err[0].message);
+    let dtmc = "dtmc
+        module m
+          s : [0..1] init 0;
+          [] s=0 -> 0.5 : (s'=1) + 0.5 : (s'=0);
+          [] s=1 -> 1 : (s'=1);
+        endmodule";
+    let err = query_prism(dtmc, "P=? [F<=1e12 s=1]", Options::default()).unwrap_err();
+    assert!(err[0].message.contains("up to"), "{}", err[0].message);
+}
+
+#[test]
+fn unbounded_reachability_survives_a_slow_exit() {
+    // s=1 is left towards the goal at rate 1e-6 only, but is certain.
+    let model = "ctmc
+        module m
+          s : [0..2] init 0;
+          [] s=0 -> 1 : (s'=1);
+          [] s=1 -> 0.999999 : (s'=0) + 0.000001 : (s'=2);
+        endmodule";
+    let r = query_prism(model, "P=? [F s=2]", Options::default()).unwrap();
+    assert!((r.probability - 1.0).abs() < 1e-9, "{}", r.probability);
+    let r = query_prism(model, "P>=0.99 [F s=2]", Options::default()).unwrap();
+    assert_eq!(r.holds, Some(true));
+}
+
+#[test]
+fn large_comparisons_skip_the_quadratic_simulation_check() {
+    // Two 2,500-state chains with no two equivalent states: above the limit.
+    let model = |n: usize| {
+        let mut src = String::from("r = 1;\n");
+        // A chain ending in deadlock: every state is at a different distance
+        // from it, so no two are equivalent.
+        for i in 0..n - 1 {
+            src.push_str(&format!("P{i} = (a, r).P{};\n", i + 1));
+        }
+        src.push_str(&format!("P{} = 0;\nP0", n - 1));
+        src
+    };
+    let c = compare(&model(2_500), &model(2_500), Options::default()).unwrap();
+    assert!(c.markovian_bisimilar.checked && c.markovian_bisimilar.holds);
+    assert!(c.bisimilar.checked && c.bisimilar.holds);
+    assert!(!c.b_simulates_a.checked);
+    assert!(c.b_simulates_a.explanation.contains("Not checked"));
+    assert!(!c.mutually_similar.checked);
+    // Small models are still checked in full.
+    let c = compare(&model(3), &model(3), Options::default()).unwrap();
+    assert!(c.b_simulates_a.checked && c.b_simulates_a.holds);
+}
+
+#[test]
+fn fluid_requests_needing_too_many_steps_are_rejected() {
+    let src = "S = (a, 1).T; T = 0; S[3]";
+    let err = fluid(src, &[1.0], 1e-9, Options::default()).unwrap_err();
+    assert!(err[0].message.contains("larger dt"), "{}", err[0].message);
+    assert!(fluid(src, &[1.0], 0.01, Options::default()).is_ok());
+}
+
+#[test]
+fn json_requests_are_strict_and_versioned() {
+    use bisim_api::{PROTOCOL_VERSION, handle_json};
+    let ok = handle_json(r#"{"op":"check","source":"P = (a, 1).P; P"}"#);
+    assert!(ok.contains(r#""version":1"#), "{ok}");
+    // A misspelt option is an error, not silently the default.
+    let e =
+        handle_json(r#"{"op":"fluid","source":"S = (a,1).T; T = 0; S[3]","times":[1],"DT":5.0}"#);
+    assert!(e.contains("unknown field"), "{e}");
+    let e = handle_json(
+        r#"{"op":"forecast","source":"P = (a,1).P; P","timeline":{"start":"01/01/2026","levl":0.5},"state":"P","times":[1]}"#,
+    );
+    assert!(e.contains("unknown field"), "{e}");
+    // Versions: the current one and none are fine, others are refused.
+    assert!(
+        !handle_json(&format!(
+            r#"{{"op":"check","source":"P = (a, 1).P; P","version":{PROTOCOL_VERSION}}}"#
+        ))
+        .contains("not supported")
+    );
+    let e = handle_json(r#"{"op":"check","source":"P = (a, 1).P; P","version":2}"#);
+    assert!(e.contains("not supported"), "{e}");
+    // Time units accept the same aliases everywhere.
+    let r = handle_json(
+        r#"{"op":"forecast","source":"P = (a,1).P; P","timeline":{"start":"01/01/2026","unit":"days"},"state":"P","times":[1]}"#,
+    );
+    assert!(r.contains(r#""ok""#), "{r}");
+    // Forecast validates the level like observe does.
+    let e = handle_json(
+        r#"{"op":"forecast","source":"P = (a,1).P; P","timeline":{"start":"01/01/2026","level":1.5},"state":"P","times":[1]}"#,
+    );
+    assert!(e.contains("between 0.5 and 1"), "{e}");
+}

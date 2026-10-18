@@ -19,6 +19,18 @@ use serde::{Deserialize, Serialize};
 use crate::engine::Evaluator;
 use crate::{Diagnostic, Options, Severity, diagnostic};
 
+/// A NaN or infinite probability would read as "no probability mass" and so
+/// as a count far off plan; report it as the model error it is.
+fn ensure_finite(snaps: &crate::engine::Snapshots) -> Result<(), Vec<Diagnostic>> {
+    if snaps.is_finite() {
+        Ok(())
+    } else {
+        Err(error(
+            "the model produced non-finite probabilities; check its rates",
+        ))
+    }
+}
+
 fn error(message: impl Into<String>) -> Vec<Diagnostic> {
     vec![Diagnostic {
         severity: Severity::Error,
@@ -61,6 +73,14 @@ pub fn parse_date(text: &str) -> Result<i64, String> {
     if parts.len() != 3 {
         return Err(bad());
     }
+    // Plain digits only (no sign), at most four per part, and a four-digit
+    // year: `15/05/26` is not the year 26 AD.
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || p.len() > 4 || !p.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return Err(bad());
+    }
     let nums: Vec<i64> = parts
         .iter()
         .map(|p| p.parse::<i64>().map_err(|_| bad()))
@@ -70,7 +90,12 @@ pub fn parse_date(text: &str) -> Result<i64, String> {
     } else {
         (nums[2], nums[1], nums[0])
     };
-    if !(1..=12).contains(&m) || y < 1 {
+    let year_digits = if parts[0].len() == 4 {
+        parts[0].len()
+    } else {
+        parts[2].len()
+    };
+    if year_digits != 4 || !(1..=12).contains(&m) || !(1583..=9999).contains(&y) {
         return Err(bad());
     }
     let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
@@ -104,11 +129,16 @@ pub fn format_date(days: i64) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TimeUnit {
+    #[serde(alias = "s", alias = "sec", alias = "seconds")]
     Second,
+    #[serde(alias = "min", alias = "minutes")]
     Minute,
+    #[serde(alias = "h", alias = "hours")]
     Hour,
     #[default]
+    #[serde(alias = "d", alias = "days")]
     Day,
+    #[serde(alias = "w", alias = "weeks")]
     Week,
 }
 
@@ -157,6 +187,7 @@ impl std::str::FromStr for TimeUnit {
 
 /// One dated count.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Observation {
     /// `dd/mm/yyyy`.
     pub date: String,
@@ -171,6 +202,7 @@ pub struct Observation {
 
 /// When the plan starts and what its rates are measured in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Timeline {
     /// Date of the model's initial state, `dd/mm/yyyy`.
     pub start: String,
@@ -364,6 +396,7 @@ fn evaluate(
     let resolved = resolve(&eval, obs, timeline)?;
     let times: Vec<f64> = resolved.iter().map(|r| r.elapsed).collect();
     let snaps = eval.snapshots(&times);
+    ensure_finite(&snaps)?;
 
     let mut log_likelihood = 0.0;
     let rows: Vec<ObservationResult> = resolved
@@ -498,6 +531,11 @@ pub fn forecast(
     if let Some(t) = elapsed.iter().find(|t| !t.is_finite() || **t < 0.0) {
         return Err(error(format!("times must be non-negative, got {t}")));
     }
+    if !(0.5..1.0).contains(&timeline.level) {
+        return Err(error(
+            "the range level must be between 0.5 and 1 (e.g. 0.95)",
+        ));
+    }
     let model = parse_pepa(source).map_err(|e| vec![diagnostic(&e)])?;
     let eval = Evaluator::new(&model, options)?;
     let start = parse_date(&timeline.start).map_err(|e| error(format!("start date: {e}")))?;
@@ -510,6 +548,7 @@ pub fn forecast(
     };
     let r = resolve(&eval, std::slice::from_ref(&probe), timeline)?.remove(0);
     let snaps = eval.snapshots(elapsed);
+    ensure_finite(&snaps)?;
     let (mut expected, mut low, mut high) = (Vec::new(), Vec::new(), Vec::new());
     for i in 0..elapsed.len() {
         let d = eval.count_distribution(&snaps, i, r.leaf, &r.matched);
@@ -639,10 +678,14 @@ pub fn fit_parameters(
         .collect();
     let ratio = (fitted_ll - planned_ll).exp();
     let likelihood = if ratio > 1000.0 {
-        "The counts are more than 1000× more likely with the fitted values than with the plan."
+        "The counts are more than 1000× more likely with the fitted values than with the plan \
+         (an approximation: every dated count is treated as independent, which overstates the evidence)."
             .to_owned()
     } else {
-        format!("The counts are {ratio:.1}× more likely with the fitted values than with the plan.")
+        format!(
+            "The counts are {ratio:.1}× more likely with the fitted values than with the plan \
+             (an approximation: every dated count is treated as independent, which overstates the evidence)."
+        )
     };
     let mut explanation = format!(
         "Best fit to the counts: {}. {likelihood}",
@@ -682,6 +725,25 @@ mod tests {
         assert!(parse_date("29/02/2026").is_err());
         assert!(parse_date("12/13/2026").unwrap_err().contains("dd/mm/yyyy"));
         assert_eq!(format_date(0), "01/01/1970");
+    }
+
+    #[test]
+    fn implausible_dates_are_rejected() {
+        // Two-digit years are not years 26 AD; signs, huge years (which used
+        // to overflow the day count) and empty parts are errors.
+        for bad in [
+            "15/05/26",
+            "15/05/0026",
+            "01/01/99999999999999999",
+            "+15/+05/+2026",
+            "15//2026",
+            "15/05/10000",
+            "1500-01-01",
+        ] {
+            assert!(parse_date(bad).is_err(), "{bad}");
+        }
+        assert!(parse_date("01/01/1583").is_ok());
+        assert!(parse_date("31/12/9999").is_ok());
     }
 
     #[test]

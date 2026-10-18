@@ -31,6 +31,14 @@ pub(crate) struct Snapshots {
     full: Option<Vec<Vec<f64>>>,
 }
 
+impl Snapshots {
+    /// Whether every probability is a finite number.
+    pub(crate) fn is_finite(&self) -> bool {
+        let finite = |rows: &Vec<Vec<f64>>| rows.iter().flatten().all(|p| p.is_finite());
+        self.local.iter().flatten().all(finite) && self.full.as_ref().is_none_or(finite)
+    }
+}
+
 /// Distributions at increasing times, advancing from one time to the next.
 fn advance(ctmc: &Ctmc, times: &[f64]) -> Vec<Vec<f64>> {
     let mut order: Vec<usize> = (0..times.len()).collect();
