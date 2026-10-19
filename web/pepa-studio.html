@@ -379,6 +379,28 @@ P′ = { states with equal signatures under P }.</div>
           <h3>10. Approximate bisimulation</h3>
           <p>Measured rates are never exactly equal, and exact refinement shatters under noise. <code>(ε, δ)</code>-bisimulation (Spork, Baier, Katoen) relaxes the two quantitative obligations: class-sum rates match within <code>ε</code> (absolute) and exit rates within <code>δ</code> (relative). The checker reports an approximate verdict with a behavioural distance instead of forcing equality — a quasi-lumpability check on a pair of states, with tolerance grouping documented as non-transitive (it is a perturbation bound, not a congruence).</p>
 
+          <h3>11. Why compare systems while they run: continuous harvest</h3>
+          <p><strong>The motivation.</strong> Classical agriculture judges a crop or a herd by its yield at harvest or culling, so during growth the system is effectively unmonitored: a deviation shows up only when it can no longer be corrected. In permaculture the harvest is continuous — fruit, leaves and eggs keep coming, and the system may never “end” — so there is no terminal yield to wait for. The comparison with a plan or a benchmark has to be made <em>while the system is running</em>, on behaviour rather than on a final number.</p>
+          <p><strong>Why bisimulation fits.</strong> Bisimulation compares what a system can do, step by step, and it is coinductive (§1): a cyclic or never-ending behaviour is compared without being unrolled to an end. That matches a food forest or a laying flock, whose behaviour is a cycle (flower, fruit, harvest, regrow) and not a path to one outcome. Three things follow.</p>
+          <div class="block">1. Structure: does the real system have the same possible behaviours as the plan
+   (the stages it reaches, whether the cycle closes, whether it regrows)?
+2. Explanation: when it does not, a distinguishing formula (§4) says why, e.g.
+   "the plan can fruit and then regrow; this plot never regrows".
+3. Rates: Markovian bisimulation (§7) also requires the rates to match, and the
+   long-run throughput (harvests per week at equilibrium) is the natural
+   one-number summary for a system that does not end. Bisimilar systems have equal
+   throughput.</div>
+          <p><strong>Verdicts on a running prefix.</strong> Only part of the behaviour has been observed so far, and a transition that is missing now may simply not have happened yet. A sound verdict on a prefix therefore reports a difference only when it can no longer be repaired: an observed move has no matching answer from a state declared complete. Until then the answer is “holds so far”. The <code>PrefixChecker</code> in <code>bisim-refine</code> implements exactly this.</p>
+          <p><strong>Where exact bisimulation breaks.</strong> Real rates are never exactly equal (§10), and a field gives events and counts, not rates. So the comparison is between the plan and a <em>model fitted to the observations</em>, not between the plan and raw data, and it must be quantitative: <code>(ε, δ)</code>-closeness and a behavioural distance, not yes or no. Repeated counts of the same plants on different dates are strongly dependent, which a fit must respect.</p>
+          <div class="block">event log per plant or animal ──▶ fitted rates ──▶ fitted model
+                                                        │
+        plan (PEPA model) ──────────────────────────────┴─▶ compare:
+                                                              • same possible behaviour? (witness)
+                                                              • how far apart? (distance)
+                                                              • same long-run harvest rate?</div>
+          <p><strong>What exists today, and what does not.</strong> In the library: the prefix checker, the approximate check with a distance, steady-state analysis, and rate learning from event logs. In this tool: the Observations tab compares dated counts with the plan and fits rates by likelihood, and the Compare tab checks two models exactly. Not yet connected: event logs as an input, the fitted model compared with the plan through the distance and witness, and a long-run throughput comparison.</p>
+          <p><strong>A caution about causes.</strong> This comparison is association, not causation. “Plot B is behind plan” can be read straight off the verdict; “the guild is working” cannot, because soil, weather and management differ between plots. Causal claims need a design behind them (a control plot, matched units) or a model whose structure you trust. Fitted rates from a handful of dated counts rarely tell competing mechanisms apart.</p>
+
           <h3>Exercises</h3>
           <p class="lede">Each exercise states a claim, loads the models, and asks you to check it in the tool. Answers are folded away; open them after you have tried the claim.</p>
 
@@ -471,7 +493,7 @@ P′ = { states with equal signatures under P }.</div>
             </details>
           </div>
 
-          <p class="ref">Background: Sangiorgi, <em>Introduction to Bisimulation and Coinduction</em> (2012); Larsen, “Modal specifications” (1991); Hillston, <em>A Compositional Approach to Performance Modelling</em> (1996); Baier &amp; Katoen, <em>Principles of Model Checking</em> (2008, ch. 10, 24); Jensen, “Monotonicity in performance evaluation” (1993); Spork, Baier, Katoen, “Dissimilarity assertions for probabilistic model checking” (2024). The Rust sources behind each claim: <code>bisim-refine</code> (§3–6, 10), <code>bisim-algebra/pepa</code> (§8–9), <code>bisim-stochastic</code> (§7, 9).</p>
+          <p class="ref">Background: Sangiorgi, <em>Introduction to Bisimulation and Coinduction</em> (2012); Larsen, “Modal specifications” (1991); Hillston, <em>A Compositional Approach to Performance Modelling</em> (1996); Baier &amp; Katoen, <em>Principles of Model Checking</em> (2008, ch. 10, 24); Jensen, “Monotonicity in performance evaluation” (1993); Spork, Baier, Katoen, “Dissimilarity assertions for probabilistic model checking” (2024). The Rust sources behind each claim: <code>bisim-refine</code> (§3–6, 10–11, including <code>stream</code>), <code>bisim-algebra/pepa</code> (§8–9), <code>bisim-stochastic</code> (§7, 9, 11).</p>
         </article>
       </div>
     </section>
@@ -533,6 +555,88 @@ Wait   = (done, r_think).Client;
 Server = (req, r_serve).Server;
 
 Client[2] <req> Server`,
+  "Coral reef": `// Coral reef under heat waves (ecology). Rates are per week.
+// The environment alternates between Calm and Heat; each coral reads it
+// with a species count (#Heat is 1 during a heat wave, else 0), so the
+// stress rates apply per coral.
+heat_on  = 0.02;   // a heat wave starts about every 50 weeks
+heat_off = 0.10;   // and lasts about 10 weeks
+bleach   = 0.40;   // bleaching rate per coral during a heat wave
+recover  = 0.05;   // recovery rate per bleached coral in calm water
+die      = 0.12;   // death rate per bleached coral during a heat wave
+
+Calm = (warm, heat_on).Heat;
+Heat = (cool, heat_off).Calm;
+
+Healthy  = (bleach, bleach * #Heat).Bleached;
+Bleached = (recover, recover * #Calm).Healthy + (die, die * #Heat).Dead;
+Dead = 0;
+
+Healthy[40] || Calm[1]`,
+  "Antibiotic cycling": `// Antibiotic cycling on a bacterial population (biology). Rates are per day.
+// Treatment is on half of the time. Susceptible cells are killed only while
+// it is on (#On is 1 then); they can mutate to resistant, and resistance
+// slowly reverts without the drug (a fitness cost).
+treat_on  = 0.5;
+treat_off = 0.5;
+kill      = 0.4;
+mutate    = 0.03;
+revert    = 0.02;
+
+Off = (start, treat_on).On;
+On  = (stop, treat_off).Off;
+
+Susceptible = (die, kill * #On).Dead + (mutate, mutate).Resistant;
+Resistant   = (revert, revert).Susceptible;
+Dead = 0;
+
+Susceptible[200] || Off[1]`,
+  "Bass diffusion": `// Adoption of a new product among 1000 potential customers (economics).
+// Rates are per day; the model is written per month and divided by
+// \`month\`. Each customer adopts at rate p (advertising) plus
+// q * (share of adopters) (word of mouth): a functional rate that reads
+// the number of adopters. The adoption curve is S-shaped.
+month   = 30;
+n_total = 1000;
+p       = 0.01;   // per month
+q       = 0.4;    // per month
+
+Potential = (adopt, (p + q * #Adopter / n_total) / month).Adopter;
+Adopter   = 0;
+
+Potential[1000]`,
+  "Credit ratings": `// Rating migration of a portfolio of 100 firms (finance). Rates are per
+// day; the annual rates are divided by \`year\`. Ratings move one notch at a
+// time and Default is absorbing. Show 3650 days (10 years).
+year = 365;
+
+Strong = (downgrade_s, 0.08 / year).Medium;
+Medium = (upgrade_m, 0.10 / year).Strong + (downgrade_m, 0.12 / year).Weak;
+Weak   = (upgrade_w, 0.15 / year).Medium + (default, 0.10 / year).Default;
+Default = 0;
+
+Strong[100]`,
+  "Permaculture guild": `// A bed of 60 vegetables as a guild (permaculture). Rates are per week.
+// Companion plantings (marigold, nasturtium, alliums) repel aphids and 12
+// ladybirds clear infested plants. Compare with the monoculture in tab B.
+// - Companions cut infestation by \`repel\` (40 %).
+// - Each Hunting ladybird clears infested plants at \`clear\` per week.
+// - Ladybirds hunt more where there is prey (#Infested): self-limiting control.
+infest     = 0.15;
+repel      = 0.40;
+damage     = 0.10;
+clear      = 0.015;
+hunt_start = 0.02;   // per ladybird per infested plant
+hunt_stop  = 0.30;
+
+Healthy  = (infest, infest * (1 - repel)).Infested;
+Infested = (cleared, clear * #Hunting).Healthy + (damage, damage).Lost;
+Lost = 0;
+
+Resting = (hunt, hunt_start * #Infested).Hunting;
+Hunting = (rest, hunt_stop).Resting;
+
+Healthy[60] || Resting[12]`,
 };
 
 // Counts that come with an example (dates dd/mm/yyyy).
@@ -544,7 +648,9 @@ const EXAMPLE_OBS = {
     ["17/07/2026", "Vegetative", 6], ["17/07/2026", "Ripe", 1],
   ] },
 };
-const EXAMPLE_UNIT = { "Herd health": "second", "Hillston cycle": "second", "Clients and server": "second", "Tomato bed": "day" };
+const EXAMPLE_UNIT = { "Herd health": "second", "Hillston cycle": "second", "Clients and server": "second", "Tomato bed": "day", "Coral reef": "week", "Antibiotic cycling": "day", "Bass diffusion": "day", "Credit ratings": "day", "Permaculture guild": "week" };
+// How far the time view looks, in the example's unit.
+const EXAMPLE_HORIZON = { "Herd health": 100, "Tomato bed": 120, "Coral reef": 104, "Antibiotic cycling": 60, "Bass diffusion": 720, "Credit ratings": 3650, "Permaculture guild": 26 };
 
 const PRESETS_B = {
   "No recovery (vs herd)": `r_disease = 0.02;
@@ -566,6 +672,15 @@ P2 = (run, 1).P3;
 P3 = (stop, 1).P1;
 
 P1[2]`,
+  "Monoculture (vs guild)": `// The same bed with nothing around it. Rates are per week.
+infest = 0.15;
+damage = 0.10;
+
+Healthy  = (infest, infest).Infested;
+Infested = (damage, damage).Lost;
+Lost = 0;
+
+Healthy[60]`,
 };
 
 // ---------- Tutorial exercise models (all numbers in the Tutorial tab
@@ -1215,14 +1330,14 @@ exampleSel.addEventListener("change", () => {
   if (!exampleSel.value) return;
   editorA.value = EXAMPLES[exampleSel.value];
   store.set("a", editorA.value);
-  document.getElementById("horizon").value = { "Herd health": 100, "Tomato bed": 120 }[exampleSel.value] || 6;
+  document.getElementById("horizon").value = EXAMPLE_HORIZON[exampleSel.value] || 6;
   setUnit(EXAMPLE_UNIT[exampleSel.value] || "second");
   const ex = EXAMPLE_OBS[exampleSel.value];
   obsState = ex
     ? { start: ex.start, unit: ex.unit, level: "0.95", rows: ex.rows.map(([date, state, count]) => ({ date, state, count, component: "" })) }
     : { ...obsState, unit: EXAMPLE_UNIT[exampleSel.value] || obsState.unit, rows: [] };
   saveObs(); obsInputsFor = null;
-  const pair = { "Herd health": "No recovery (vs herd)", "Hillston cycle": "Array form (vs cycle)" }[exampleSel.value];
+  const pair = { "Herd health": "No recovery (vs herd)", "Hillston cycle": "Array form (vs cycle)", "Permaculture guild": "Monoculture (vs guild)" }[exampleSel.value];
   if (pair) { presetSel.value = pair; editorB.value = PRESETS_B[pair]; store.set("b", editorB.value); }
   schedule();
 });
