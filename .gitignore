@@ -18,3 +18,6 @@ r/src/*.so
 # Web editor build output (see web/build.sh)
 web/*.wasm
 web/dist/
+
+# Lean build output and fetched packages
+lean/.lake/
