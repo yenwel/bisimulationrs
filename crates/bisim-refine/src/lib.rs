@@ -16,9 +16,10 @@
 //!   witnesses from Spoiler's winning strategy.
 //! - `approx`: quasi-Markovian bisimilarity up to `(ε, δ)` tolerances
 //!   (absolute class-sum deviation + relative exit-rate deviation), in the
-//!   spirit of approximate probabilistic bisimulation for CTMCs
-//!   (Baier, Katoen et al., 2024–2025). Reports `Verdict::Approx` with a
-//!   behavioural distance instead of forcing exact equality.
+//!   spirit of approximate probabilistic bisimulation for CTMCs (Spork et
+//!   al., CONCUR 2024 and CAV 2025; not the same definition, see
+//!   [`Tolerance`]). Reports `Verdict::Approx` with a behavioural distance
+//!   instead of forcing exact equality.
 //! - [`PrefixChecker`]: the same comparisons over prefixes that grow, with
 //!   verdicts that stay sound for what has not been observed yet.
 //! - [`compare`] / [`bisimilar`]: the user-facing checks on two systems.

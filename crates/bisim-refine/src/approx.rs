@@ -5,10 +5,16 @@ use bisim_core::{Formula, Real, StateId, Verdict, Wlts};
 use crate::refine::{distinguishing_formula, refine};
 
 /// Tolerance for quasi-Markovian bisimilarity, in the spirit of
-/// `(ε, δ)`-bisimulation for CTMCs (Baier, Katoen et al., 2025):
-/// related states may differ by at most `epsilon` (absolute, in s⁻¹)
-/// on any class sum, and their total exit rates may differ by at most
-/// a relative `delta`.
+/// `(ε, δ)`-bisimulation for CTMCs (Spork, Baier, Katoen, Klüppelholz and
+/// Piribauer, CAV 2025, arXiv:2505.15587): related states may differ by at
+/// most `epsilon` (absolute, in s⁻¹) on any class sum, and their total exit
+/// rates may differ by at most a relative `delta`.
+///
+/// This is **not** the definition of that paper: there `ε` bounds the
+/// difference of transition *probabilities* (additively) and `δ` the exit
+/// rates (multiplicatively), and the authors prove bounds on time- and
+/// reward-bounded reachability for states related that way. Here `ε` is on
+/// class-sum *rates*, and no such reachability bound is proved or claimed.
 ///
 /// `epsilon = 0` and `delta = 0` recover exact Markovian bisimilarity.
 /// Like ε-bucketing, tolerance grouping is **not** transitive, so this

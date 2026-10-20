@@ -17,6 +17,9 @@
 //! {"op": "query",     "source": "…", "query": "P=? [F<=10 s=0]"}
 //! {"op": "query_jani", "source": "…", "query": "P=? [F<=10 s=0]"}
 //! {"op": "fluid",     "source": "…", "times": [0, 7, 14], "dt": 0.01}
+//! {"op": "whatif",    "source": "…", "timeline": {…}, "state": "Ripe", "times": [30],
+//!                     "interventions": [{"param": "veg_days", "value": 21}]}
+//! {"op": "attribute", "plan": "…", "actual": "…", "timeline": {…}, "state": "Ripe", "at": 60}
 //! ```
 //!
 //! Responses are `{"ok": …}` or `{"error": …}`, where an error is a list of
@@ -26,9 +29,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    Observation, Options, Timeline, analyse, analyse_jani, analyse_prism, check, check_jani,
-    check_observations, check_prism, compare, fit_parameters, fluid, forecast, query_jani,
-    query_prism, transient,
+    Intervention, Observation, Options, Timeline, analyse, analyse_jani, analyse_prism, attribute,
+    check, check_jani, check_observations, check_prism, compare, fit_parameters, fluid, forecast,
+    query_jani, query_prism, transient, what_if,
 };
 
 #[derive(Deserialize)]
@@ -105,6 +108,24 @@ enum Request {
         source: String,
         times: Vec<f64>,
         dt: Option<f64>,
+        max_states: Option<usize>,
+    },
+    WhatIf {
+        source: String,
+        timeline: Timeline,
+        component: Option<String>,
+        state: String,
+        times: Vec<f64>,
+        interventions: Vec<Intervention>,
+        max_states: Option<usize>,
+    },
+    Attribute {
+        plan: String,
+        actual: String,
+        timeline: Timeline,
+        component: Option<String>,
+        state: String,
+        at: f64,
         max_states: Option<usize>,
     },
 }
@@ -223,6 +244,40 @@ fn handle(request: &str) -> Value {
             query,
             max_states,
         }) => respond(query_jani(&source, &query, options(max_states))),
+        Ok(Request::WhatIf {
+            source,
+            timeline,
+            component,
+            state,
+            times,
+            interventions,
+            max_states,
+        }) => respond(what_if(
+            &source,
+            &interventions,
+            component.as_deref(),
+            &state,
+            &times,
+            &timeline,
+            options(max_states),
+        )),
+        Ok(Request::Attribute {
+            plan,
+            actual,
+            timeline,
+            component,
+            state,
+            at,
+            max_states,
+        }) => respond(attribute(
+            &plan,
+            &actual,
+            component.as_deref(),
+            &state,
+            at,
+            &timeline,
+            options(max_states),
+        )),
         Ok(Request::Fluid {
             source,
             times,

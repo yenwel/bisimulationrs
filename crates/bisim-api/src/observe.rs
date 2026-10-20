@@ -31,7 +31,7 @@ fn ensure_finite(snaps: &crate::engine::Snapshots) -> Result<(), Vec<Diagnostic>
     }
 }
 
-fn error(message: impl Into<String>) -> Vec<Diagnostic> {
+pub(crate) fn error(message: impl Into<String>) -> Vec<Diagnostic> {
     vec![Diagnostic {
         severity: Severity::Error,
         line: 0,
@@ -528,6 +528,20 @@ pub fn forecast(
     timeline: &Timeline,
     options: Options,
 ) -> Result<Forecast, Vec<Diagnostic>> {
+    let model = parse_pepa(source).map_err(|e| vec![diagnostic(&e)])?;
+    forecast_model(&model, component, state, elapsed, timeline, options)
+}
+
+/// [`forecast`] for a model that is already parsed (and perhaps modified:
+/// see [`crate::attribution`]).
+pub(crate) fn forecast_model(
+    model: &PepaModel<Sym>,
+    component: Option<&str>,
+    state: &str,
+    elapsed: &[f64],
+    timeline: &Timeline,
+    options: Options,
+) -> Result<Forecast, Vec<Diagnostic>> {
     if let Some(t) = elapsed.iter().find(|t| !t.is_finite() || **t < 0.0) {
         return Err(error(format!("times must be non-negative, got {t}")));
     }
@@ -536,8 +550,7 @@ pub fn forecast(
             "the range level must be between 0.5 and 1 (e.g. 0.95)",
         ));
     }
-    let model = parse_pepa(source).map_err(|e| vec![diagnostic(&e)])?;
-    let eval = Evaluator::new(&model, options)?;
+    let eval = Evaluator::new(model, options)?;
     let start = parse_date(&timeline.start).map_err(|e| error(format!("start date: {e}")))?;
     // Resolve component and state through a dummy observation at the start.
     let probe = Observation {

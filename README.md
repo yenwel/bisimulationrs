@@ -140,13 +140,16 @@ are what to reach for at scale, and the direction new code here follows:
   naive Kleene iteration (`bisim-refine::refine`) is tested against but
   does not yet match.
 - **Approximate bisimulation** (the answer to noisy rates): a spectrum
-  of approximate probabilistic bisimulations (Spork, Baier, Katoen et
-  al., CONCUR 2024) and `(ε, δ)`-bisimulation for CTMCs with bounds on
-  time-bounded reachability (Baier, Katoen et al., 2025). See
-  `bisim_refine::{approx_bisimilar_states, approx_distance,
-  lumping_error}` (`Verdict::Approx`), which implements the
-  quasi-lumpability check in that spirit, and `examples/sir/` for the
-  PEPA ↔ Bio-PEPA ↔ PRISM correspondence.
+  of approximate probabilistic bisimulations (Spork, Baier, Katoen,
+  Piribauer, Quatmann, CONCUR 2024, arXiv:2407.07584) and
+  `(ε, δ)`-bisimulation for CTMCs with bounds on time-bounded reachability
+  (Spork, Baier, Katoen, Klüppelholz, Piribauer, CAV 2025,
+  arXiv:2505.15587). See `bisim_refine::{approx_bisimilar_states,
+  approx_distance, lumping_error}` (`Verdict::Approx`), which implements a
+  quasi-lumpability check in that spirit — with `ε` on class-sum rates, not
+  on transition probabilities as in the paper, and without its reachability
+  bounds — and `examples/sir/` for the PEPA ↔ Bio-PEPA ↔ PRISM
+  correspondence.
 - **Scale-out techniques**: statistical model checking, fluid/mean-field
   limits, moment closures and on-the-fly game algorithms (see the
   streaming-first architecture above).

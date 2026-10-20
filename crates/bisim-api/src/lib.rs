@@ -25,6 +25,7 @@ const MAX_FLUID_STEPS: f64 = 5e6;
 /// Largest step bound accepted in `F<=k` queries (a linear-time loop).
 const MAX_STEP_BOUND: f64 = 1e8;
 
+mod attribution;
 mod engine;
 mod observe;
 
@@ -36,6 +37,9 @@ pub use observe::{
 #[cfg(feature = "json")]
 mod json;
 #[cfg(feature = "json")]
+pub use attribution::{
+    Attribution, Contribution, Intervention, MAX_ATTRIBUTION_PARAMS, WhatIf, attribute, what_if,
+};
 pub use json::{PROTOCOL_VERSION, handle_json};
 
 /// An error or warning in a model, with a 1-based position when known

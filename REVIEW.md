@@ -279,3 +279,49 @@ On an `a`-chain of n states:
 - Testing that would have caught most of section 1: larger random property
   tests, `cargo-fuzz` on the parsers, stiff and reducible CTMCs with
   closed-form answers, differential runs against PRISM/Storm on `examples/`.
+
+## Literature check (19/10/2026)
+
+References were checked against web search results (titles, authors, venues);
+the full texts were not read. Verified: Brodersen et al., CausalImpact
+(Annals of Applied Statistics 9(1), 2015, arXiv:1506.00356); Girard and
+Pappas, "Approximation metrics for discrete and continuous systems" (IEEE TAC
+2007); Zhang et al., "Learning Invariant Representations for Reinforcement
+Learning without Reconstruction" (ICLR 2021, arXiv:2006.10742; "deep
+bisimulation for control" is the method's informal name and was not found
+verbatim); Ostrow et al., dynamical similarity analysis (NeurIPS 2023,
+arXiv:2306.10168); Bruni, Montanari and Sammartino, Acta Informatica 52
+(2015, doi:10.1007/s00236-014-0213-y; the arXiv preprint 1507.06462 is
+titled "A coalgebraic semantics for causality in Petri nets"); Spork et al.,
+"A Spectrum of Approximate Probabilistic Bisimulations" (CONCUR 2024,
+arXiv:2407.07584) and "Approximate Probabilistic Bisimulation for
+Continuous-Time Markov Chains" (CAV 2025, arXiv:2505.15587); Shapley (1953).
+
+Corrected: the Studio tutorial cited "Dissimilarity assertions for
+probabilistic model checking" (Spork, Baier, Katoen, 2024), which could not be
+found; Baier and Katoen "ch. 10, 24" (the book has ten chapters; bisimulation
+is ch. 7, probabilistic systems ch. 10); Larsen's "Modal specifications" is
+1990, not 1991; "Monotonicity in performance evaluation" (Jensen, 1993) could
+not be found and is replaced by Jensen's 1953 paper. The `(ε, δ)` check in
+`bisim-refine::approx` is described as being in the spirit of the CAV 2025
+paper but not its definition: there ε is additive on transition probabilities
+and δ multiplicative on exit rates, with proved reachability bounds; here ε is
+on class-sum rates and no such bound is claimed.
+Not checked: Kurtz, Hillston (1996), Sangiorgi (2012) and the older
+references in the README list.
+
+## Event causality: status (20/10/2026)
+
+Not implemented; left as planned (Tutorial section 12). What a search found
+(abstract level, full texts not read): history-preserving bisimilarity is
+decidable for finite safe Petri nets (Vogler, ICALP 1991) and finite n-safe
+nets (Montanari and Pistore, STACS 1997); decidability of finer variants such
+as the reversible and hereditary ones is open or negative, and the
+Jurdziński–Nielsen–Srba undecidability result I recalled was not found and is
+unverified. For fully concurrent and causal-net bisimilarity on bounded nets,
+Cesco and Gorrieri (LMCS 2023) extend the ordered-marking technique. No source
+was found that combines causal bisimulation with rates (PEPA, CTMC
+semantics), so a stochastic version would be new research. Smaller options
+considered: precedence checks ("no fruiting without an earlier flowering in
+the same plant") on plan, fitted model and event logs, and an untimed
+history-preserving module through a PEPA-to-net translation.
