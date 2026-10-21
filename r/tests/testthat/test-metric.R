@@ -1,0 +1,75 @@
+herd_rates <- function(infect, recover) sprintf("infect = %s; recover = %s;
+Healthy = (infect, infect).Sick;
+Sick = (recover, recover).Healthy;
+Healthy[4]", infect, recover)
+
+test_that("the distance is zero for the same model and grows with the change", {
+  same <- pepa_distance(herd_rates(0.1, 0.5), herd_rates(0.1, 0.5), "Sick", half_life = 5)
+  expect_lt(same$distance, 1e-6)
+  near <- pepa_distance(pepa_model(herd_rates(0.1, 0.5)), herd_rates(0.12, 0.5), "Sick", 5)
+  far <- pepa_distance(herd_rates(0.1, 0.5), herd_rates(0.3, 0.5), "Sick", 5, component = "Healthy[4]")
+  expect_gt(near$distance, 0)
+  expect_lt(near$distance, far$distance)
+  expect_equal(far$scale, 4)
+  expect_named(far$pairs, c("a", "b", "gap", "occupancy", "contribution"))
+  expect_gt(nrow(far$pairs), 0)
+  expect_match(far$explanation, "half")
+  err <- tryCatch(pepa_distance(herd_rates(0.1, 0.5), herd_rates(0.1, 0.5), "Nope", 5), pepa_error = identity)
+  expect_s3_class(err, "pepa_error")
+  expect_match(conditionMessage(err), "Nope")
+})
+
+test_that("epsdelta tolerates a uniform speed-up", {
+  r <- pepa_epsdelta(herd_rates(0.1, 0.5), herd_rates(0.105, 0.525), "Sick", delta = 0.1, epsilon = 0, horizon = 10)
+  expect_equal(r$min_epsilon, 0)
+  expect_true(r$within)
+  expect_gt(r$reach_bound, 0)
+  expect_lt(r$reach_bound, 1)
+  r <- pepa_epsdelta(herd_rates(0.1, 0.5), herd_rates(0.2, 0.5), list(list(state = "Sick")), delta = 0.7, epsilon = 0.01)
+  expect_gt(r$min_epsilon, 0.01)
+  expect_false(r$within)
+  expect_true(is.na(r$reach_bound))
+  expect_true(is.na(pepa_epsdelta(herd_rates(0.1, 0.5), herd_rates(0.1, 0.5), "Sick", delta = 0.1)$within))
+})
+
+test_that("stream distance and DSA", {
+  log <- ifelse((0:199 %/% 3) %% 2 == 0, "ok", "sick")
+  r <- pepa_stream_distance(log, log, c(ok = 0, sick = 1), gamma = 0.8)
+  expect_equal(r$steps, 199)
+  expect_equal(r$matching[["ok"]], "ok")
+  t <- (0:199) * 0.1
+  wave <- data.frame(x = sin(t), y = cos(t))
+  d <- pepa_dsa(wave, as.matrix(wave), delays = 2, rank = 2)
+  expect_lt(d$distance, 1e-6)
+  expect_gte(d$angle, 0)
+})
+
+test_that("sessions update as events arrive", {
+  s <- pepa_session_prefix("p0", "q0")
+  r <- pepa_session_push(s, list(list(left = c("p0", "a", "p1")), list(complete_left = "p0"), list(complete_left = "p1")))
+  expect_equal(r$verdict$bisimilar$verdict, "holds_so_far")
+  r <- pepa_session_push(s, list(list(complete_right = "q0")))
+  expect_true(r$changed)
+  expect_equal(r$verdict$bisimilar$witness, "⟨a⟩tt")
+  expect_error(pepa_session_push(s, list(list(right = c("q0", "a", "q1")))), "declared complete")
+  pepa_session_close(s)
+  pepa_session_close(s)
+  expect_error(pepa_session_push(s, list()), "no open session")
+
+  tomato <- pepa_model("Tomato = (grow, 0.1).Big + (lose, 0.01).Lost; Big = (lose, 0.01).Lost; Lost = 0; Tomato[4]")
+  obs <- data.frame(date = c("25/05/2026", "14/06/2026"), state = c("Big", "Lost"), count = c(2, 1))
+  once <- pepa_check_observations(tomato, obs, start = "15/05/2026")
+  s <- pepa_session_observe(tomato, start = "15/05/2026")
+  pepa_session_push(s, obs[1, ])
+  last <- pepa_session_push(s, obs[2, ])
+  expect_equal(last$explanation, once$explanation)
+  expect_equal(nrow(last$table), 2)
+  pepa_session_close(s)
+
+  s <- pepa_session_stream(c("ok", "sick"), c("ok", "sick"), c(ok = 0, sick = 1), gamma = 0.8)
+  step <- list(a = c("ok", "sick"), b = c("ok", "ok"))
+  expect_equal(pepa_session_push(s, list(step, step))$steps, 2)
+  expect_error(pepa_session_push(s, list(list(a = c("ok", "nope"), b = c("ok", "ok")))), "nope")
+  expect_equal(pepa_session_push(s, list(step))$steps, 3)
+  pepa_session_close(s)
+})

@@ -1,6 +1,6 @@
 use bisim_api::{
-    Observation, Options, Status, TimeUnit, Timeline, analyse, check_observations, fit_parameters,
-    forecast, transient,
+    Observation, ObserveSession, Options, Status, TimeUnit, Timeline, analyse, check_observations,
+    fit_parameters, forecast, transient,
 };
 
 const GARDEN: &str = include_str!("../../../examples/garden/tomatoes.pepa");
@@ -152,4 +152,84 @@ fn large_independent_populations_skip_the_full_state_space() {
     let t = transient(&big, &[0.0, 50.0], Options { max_states: 1_000 }).unwrap();
     let total: f64 = t.occupancy.iter().map(|s| s.values[1]).sum();
     assert!((total - 500.0).abs() < 1e-6);
+}
+
+#[test]
+fn counts_pushed_one_at_a_time_give_the_one_shot_report() {
+    let all = season();
+    let once = check_observations(GARDEN, &all, &timeline(), Options::default()).unwrap();
+    // Both the independent (binomial) and the full-chain path.
+    let coupled = "Tomato = (grow, 0.1).Big + (lose, 0.01).Lost; Big = (lose, 0.01).Lost; Lost = 0;
+                   Gardener = (grow, infty).Gardener; Tomato[4] <grow> Gardener";
+    let tomato = |o: Observation| Observation {
+        component: Some("Tomato".into()),
+        ..o
+    };
+    let small = vec![
+        tomato(obs("25/05/2026", "Big", 2)),
+        tomato(obs("14/06/2026", "Lost", 1)),
+        tomato(obs("20/05/2026", "Big", 1)),
+    ];
+    for (source, all, once) in [
+        (GARDEN, all.clone(), once),
+        (
+            coupled,
+            small.clone(),
+            check_observations(coupled, &small, &timeline(), Options::default()).unwrap(),
+        ),
+    ] {
+        let mut session = ObserveSession::new(source, &timeline(), Options::default()).unwrap();
+        let mut last = None;
+        for o in &all {
+            last = Some(session.push(std::slice::from_ref(o)).unwrap());
+        }
+        let last = last.unwrap();
+        assert_eq!(last.on_track, once.on_track);
+        assert_eq!(last.explanation, once.explanation);
+        for (x, y) in last.rows.iter().zip(&once.rows) {
+            assert_eq!(
+                (&x.date, &x.state, x.low, x.high),
+                (&y.date, &y.state, y.low, y.high)
+            );
+            assert!(
+                (x.expected - y.expected).abs() < 1e-9,
+                "{} vs {}",
+                x.expected,
+                y.expected
+            );
+            assert!((x.p_value - y.p_value).abs() < 1e-9);
+        }
+    }
+    // A count that cannot be resolved adds nothing.
+    let mut session = ObserveSession::new(GARDEN, &timeline(), Options::default()).unwrap();
+    session.push(&season()[..2]).unwrap();
+    assert!(session.push(&[obs("01/06/2026", "Nope", 1)]).is_err());
+    assert_eq!(session.report().unwrap().rows.len(), 2);
+}
+
+#[test]
+fn a_warm_start_reaches_the_same_fit() {
+    let params = vec!["veg_days".to_owned()];
+    let cold = fit_parameters(GARDEN, &season(), &params, &timeline(), Options::default()).unwrap();
+    let previous: Vec<f64> = cold.params.iter().map(|p| p.fitted * 1.05).collect();
+    let warm = bisim_api::fit_parameters_from(
+        GARDEN,
+        &season(),
+        &params,
+        Some(&previous),
+        &timeline(),
+        Options::default(),
+    )
+    .unwrap();
+    assert!((warm.params[0].fitted - cold.params[0].fitted).abs() < 1e-3 * cold.params[0].fitted);
+    assert_eq!(warm.params[0].planned, cold.params[0].planned);
+    let bad = bisim_api::fit_parameters_from(
+        GARDEN,
+        &season(),
+        &params,
+        Some(&[-1.0]),
+        &timeline(),
+        Options::default(),
+    );
+    assert!(bad.is_err());
 }

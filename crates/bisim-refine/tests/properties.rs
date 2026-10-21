@@ -550,11 +550,11 @@ fn prefix_verdicts_are_sound_and_converge_to_the_full_comparison() {
                 if take_left {
                     let e = le.pop().unwrap();
                     seen_l.push(e);
-                    checker.observe_left([e]);
+                    checker.observe_left([e]).unwrap();
                 } else {
                     let e = re.pop().unwrap();
                     seen_r.push(e);
-                    checker.observe_right([e]);
+                    checker.observe_right([e]).unwrap();
                 }
             }
             let all_l = edges(&left);
@@ -568,6 +568,36 @@ fn prefix_verdicts_are_sound_and_converge_to_the_full_comparison() {
                 }
             }
             let v = checker.verdict();
+            // The incremental games agree with solving from scratch.
+            let replay = checker.replay_verdict();
+            for (name, got, want) in [
+                (
+                    "simulates",
+                    &v.right_simulates_left,
+                    &replay.right_simulates_left,
+                ),
+                ("similar", &v.mutually_similar, &replay.mutually_similar),
+                ("bisimilar", &v.bisimilar, &replay.bisimilar),
+            ] {
+                assert_eq!(
+                    verdict_kind(got),
+                    verdict_kind(want),
+                    "round {round} step {step}: {name} incremental vs replay"
+                );
+            }
+            if step == total
+                && let Verdict::Violated { witness } = &v.bisimilar
+            {
+                let union = left.disjoint_union(&right);
+                let r0 = StateId(left.num_states() as u32);
+                // True in exactly one initial state (the right one when the
+                // backward simulation failed).
+                assert_ne!(
+                    witness.holds(&union, StateId(0)),
+                    witness.holds(&union, r0),
+                    "round {round}: {witness}"
+                );
+            }
             for (name, got, want) in [
                 (
                     "simulates",
@@ -610,8 +640,9 @@ fn prefix_verdict_waits_for_the_missing_move_instead_of_refuting() {
     use bisim_refine::PrefixChecker;
     // The left system can do `a` then `b`. The right has only shown `a`.
     let mut c = PrefixChecker::new("l0", "r0");
-    c.observe_left([("l0", 'a', "l1"), ("l1", 'b', "l2")]);
-    c.observe_right([("r0", 'a', "r1")]);
+    c.observe_left([("l0", 'a', "l1"), ("l1", 'b', "l2")])
+        .unwrap();
+    c.observe_right([("r0", 'a', "r1")]).unwrap();
     c.complete_left("l0");
     c.complete_left("l1");
     c.complete_left("l2");
@@ -627,9 +658,10 @@ fn prefix_verdict_waits_for_the_missing_move_instead_of_refuting() {
     assert_eq!(witness.to_string(), "⟨a⟩⟨b⟩tt");
     // A late `b` repairs an unfinished prefix.
     let mut c = PrefixChecker::new("l0", "r0");
-    c.observe_left([("l0", 'a', "l1"), ("l1", 'b', "l2")]);
-    c.observe_right([("r0", 'a', "r1")]);
-    c.observe_right([("r1", 'b', "r2")]);
+    c.observe_left([("l0", 'a', "l1"), ("l1", 'b', "l2")])
+        .unwrap();
+    c.observe_right([("r0", 'a', "r1")]).unwrap();
+    c.observe_right([("r1", 'b', "r2")]).unwrap();
     for s in ["l0", "l1", "l2"] {
         c.complete_left(s);
     }
@@ -637,4 +669,161 @@ fn prefix_verdict_waits_for_the_missing_move_instead_of_refuting() {
         c.complete_right(s);
     }
     assert_eq!(verdict_kind(&c.verdict().bisimilar), "holds");
+}
+
+#[test]
+fn prefix_rejects_transitions_from_complete_states() {
+    use bisim_refine::{PrefixChecker, PrefixError};
+    let mut c = PrefixChecker::new("l0", "r0");
+    c.observe_left([("l0", 'a', "l1")]).unwrap();
+    c.complete_left("l0");
+    c.complete_left("l1");
+    c.observe_right([("r0", 'a', "r1")]).unwrap();
+    c.complete_right("r0");
+    c.complete_right("r1");
+    assert_eq!(verdict_kind(&c.verdict().bisimilar), "holds");
+    // A late transition from a complete state would retract a final verdict.
+    let err = c.observe_right([("r1", 'b', "r2"), ("r0", 'c', "r3")]);
+    assert_eq!(
+        err,
+        Err(PrefixError {
+            left: false,
+            state: "r1"
+        })
+    );
+    // Nothing of the rejected batch was added.
+    assert_eq!(verdict_kind(&c.verdict().bisimilar), "holds");
+    assert_eq!(verdict_kind(&c.replay_verdict().bisimilar), "holds");
+}
+
+#[test]
+fn prefix_reports_only_changes() {
+    use bisim_refine::PrefixChecker;
+    let mut c = PrefixChecker::new("l0", "r0");
+    assert!(c.poll_change().is_some(), "the first poll reports");
+    c.observe_left([("l0", 'a', "l1")]).unwrap();
+    assert!(c.poll_change().is_none(), "still holds so far");
+    c.complete_left("l0");
+    c.complete_left("l1");
+    c.complete_right("r0");
+    let v = c.poll_change().expect("now violated");
+    assert!(v.bisimilar.is_violated());
+    assert!(c.poll_change().is_none());
+}
+
+/// Incremental against replay with completions delayed at random, larger
+/// systems and three labels, compacting (with or without minimisation) at
+/// random points: the verdict kinds agree after every event, and every
+/// violation's witness distinguishes the initial states.
+#[test]
+fn incremental_prefix_games_match_replay_with_delayed_completion() {
+    use bisim_refine::PrefixChecker;
+    let mut rng = Rng(0xD1FF_E2E5);
+    let (mut shrunk, mut held, mut witnesses) = (0, 0, 0);
+    for round in 0..400 {
+        let n = 2 + (round % 11) as u32;
+        let left = random_lts(&mut rng, n, 3, n as usize * 2);
+        let right = random_lts(&mut rng, n, 3, n as usize * 2);
+        let edges = |sys: &Lts<char>| -> Vec<(u32, char, u32)> {
+            sys.transitions()
+                .map(|(s, l, t, _)| (s.0, *l, t.0))
+                .collect()
+        };
+        let (all_l, all_r) = (edges(&left), edges(&right));
+        let mut pending = [all_l.clone(), all_r.clone()];
+        for list in &mut pending {
+            for i in (1..list.len()).rev() {
+                list.swap(i, rng.below(i as u64 + 1) as usize);
+            }
+        }
+        let all = [all_l, all_r];
+        let mut seen = [Vec::new(), Vec::new()];
+        let mut checker = PrefixChecker::new(0u32, 0u32);
+        let mut step = 0;
+        loop {
+            let side = rng.below(2) as usize;
+            let side = if pending[side].is_empty() {
+                1 - side
+            } else {
+                side
+            };
+            let done = pending[side].is_empty();
+            if !done {
+                let e = pending[side].pop().unwrap();
+                seen[side].push(e);
+                let r = if side == 0 {
+                    checker.observe_left([e])
+                } else {
+                    checker.observe_right([e])
+                };
+                r.unwrap();
+            }
+            // Complete some states whose transitions were all seen.
+            for (side, (all, seen)) in all.iter().zip(&seen).enumerate() {
+                for s in 0..n {
+                    let finished = all.iter().filter(|e| e.0 == s).count()
+                        == seen.iter().filter(|e| e.0 == s).count();
+                    if finished && (done || rng.below(3) == 0) {
+                        if side == 0 {
+                            checker.complete_left(s);
+                        } else {
+                            checker.complete_right(s);
+                        }
+                    }
+                }
+            }
+            match rng.below(6) {
+                0 | 1 => {
+                    let before = checker.live_positions();
+                    if round % 2 == 0 {
+                        checker.compact();
+                    } else {
+                        checker.compact_and_minimise();
+                    }
+                    let after = checker.live_positions();
+                    assert!(after <= before, "round {round} step {step}: compaction grew");
+                    shrunk += usize::from(after < before);
+                    held += usize::from(checker.held_pairs() > 0);
+                }
+                _ => {}
+            }
+            let (v, replay) = (checker.verdict(), checker.replay_verdict());
+            for (name, got, want) in [
+                (
+                    "simulates",
+                    &v.right_simulates_left,
+                    &replay.right_simulates_left,
+                ),
+                ("similar", &v.mutually_similar, &replay.mutually_similar),
+                ("bisimilar", &v.bisimilar, &replay.bisimilar),
+            ] {
+                assert_eq!(
+                    verdict_kind(got),
+                    verdict_kind(want),
+                    "round {round} step {step}: {name}"
+                );
+                if let Verdict::Violated { witness } = got {
+                    // Violations are final, so the witness holds up in the
+                    // full systems: true in exactly one initial state.
+                    let union = left.disjoint_union(&right);
+                    let r0 = StateId(left.num_states() as u32);
+                    assert_ne!(
+                        witness.holds(&union, StateId(0)),
+                        witness.holds(&union, r0),
+                        "round {round} step {step}: {name} {witness}"
+                    );
+                    witnesses += 1;
+                }
+            }
+            step += 1;
+            if done {
+                break;
+            }
+        }
+    }
+    // Compaction must actually settle something, and violations occur.
+    assert!(
+        shrunk > 100 && held > 100 && witnesses > 100,
+        "{shrunk} {held} {witnesses}"
+    );
 }

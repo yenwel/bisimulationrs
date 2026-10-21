@@ -16,6 +16,7 @@ version = "0.2.0"
 dependencies = [
  "bisim-algebra",
  "bisim-core",
+ "bisim-metric",
  "bisim-refine",
  "bisim-stochastic",
  "serde",
@@ -25,6 +26,14 @@ dependencies = [
 [[package]]
 name = "bisim-core"
 version = "0.2.0"
+
+[[package]]
+name = "bisim-metric"
+version = "0.2.0"
+dependencies = [
+ "bisim-core",
+ "bisim-stochastic",
+]
 
 [[package]]
 name = "bisim-refine"

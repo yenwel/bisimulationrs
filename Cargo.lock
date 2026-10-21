@@ -44,6 +44,7 @@ version = "0.2.0"
 dependencies = [
  "bisim-algebra",
  "bisim-core",
+ "bisim-metric",
  "bisim-refine",
  "bisim-stochastic",
  "serde",
@@ -53,6 +54,15 @@ dependencies = [
 [[package]]
 name = "bisim-core"
 version = "0.2.0"
+
+[[package]]
+name = "bisim-metric"
+version = "0.2.0"
+dependencies = [
+ "bisim-core",
+ "bisim-refine",
+ "bisim-stochastic",
+]
 
 [[package]]
 name = "bisim-pepa-macros"
@@ -92,6 +102,7 @@ version = "0.2.0"
 dependencies = [
  "bisim-algebra",
  "bisim-core",
+ "bisim-metric",
  "bisim-pepa-macros",
  "bisim-refine",
  "bisim-stochastic",

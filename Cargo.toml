@@ -6,6 +6,7 @@ members = [
     "crates/bisim-algebra",
     "crates/bisim-pepa-macros",
     "crates/bisim-stochastic",
+    "crates/bisim-metric",
     "crates/bisim-api",
     "crates/bisim-wasm",
     "crates/bisimulationrs",
@@ -27,6 +28,7 @@ bisim-refine = { path = "crates/bisim-refine", version = "0.2.0" }
 bisim-algebra = { path = "crates/bisim-algebra", version = "0.2.0" }
 bisim-pepa-macros = { path = "crates/bisim-pepa-macros", version = "0.2.0" }
 bisim-stochastic = { path = "crates/bisim-stochastic", version = "0.2.0" }
+bisim-metric = { path = "crates/bisim-metric", version = "0.2.0" }
 bisim-api = { path = "crates/bisim-api", version = "0.2.0" }
 futures-core = "0.3"
 criterion = "0.5"

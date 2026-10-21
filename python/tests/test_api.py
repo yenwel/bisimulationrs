@@ -203,3 +203,69 @@ def test_query_rewards_and_fluid():
     jm = bs.PrismModel.from_jani(jani)
     assert jm.summary()["states"] == 2
     assert jm.query("S=? [s=0]")["probability"] == pytest.approx(2.5 / 4.0)
+
+
+def herd(infect, recover):
+    return f"""infect = {infect}; recover = {recover};
+Healthy = (infect, infect).Sick;
+Sick = (recover, recover).Healthy;
+Healthy[4]"""
+
+
+def test_distance_grows_with_the_change():
+    same = bs.distance(herd(0.1, 0.5), herd(0.1, 0.5), "Sick", half_life=5)
+    assert same.distance < 1e-6
+    near = bs.distance(bs.Model(herd(0.1, 0.5)), herd(0.12, 0.5), "Sick", 5)
+    far = bs.distance(herd(0.1, 0.5), herd(0.3, 0.5), ("Healthy[4]", "Sick"), 5)
+    assert 0 < float(near) < float(far)
+    assert far.scale == 4.0
+    assert list(far.pairs.columns) == ["a", "b", "gap", "occupancy", "contribution"]
+    assert len(far.pairs) > 0 and "half" in far.explanation
+    with pytest.raises(bs.ModelError, match="Nope"):
+        bs.distance(herd(0.1, 0.5), herd(0.1, 0.5), "Nope", 5)
+
+
+def test_epsdelta_tolerates_a_uniform_speed_up():
+    r = bs.epsdelta(herd(0.1, 0.5), herd(0.105, 0.525), "Sick", delta=0.1, epsilon=0.0, horizon=10)
+    assert r.min_epsilon == 0.0 and r.within is True
+    assert 0 < r.reach_bound < 1
+    r = bs.epsdelta(herd(0.1, 0.5), herd(0.2, 0.5), ["Sick"], delta=0.7, epsilon=0.01)
+    assert r.min_epsilon > 0.01 and r.within is False and r.reach_bound is None
+
+
+def test_stream_distance_and_dsa():
+    log = ["ok" if (i // 3) % 2 == 0 else "sick" for i in range(200)]
+    r = bs.stream_distance(log, log, {"ok": 0, "sick": 1}, gamma=0.8)
+    assert r.steps == 199 and r.matching["ok"] == "ok"
+    wave = pd.DataFrame({"x": [math.sin(t * 0.1) for t in range(200)], "y": [math.cos(t * 0.1) for t in range(200)]})
+    d = bs.dsa(wave, wave.values, delays=2, rank=2)
+    assert float(d) < 1e-6 and 0 <= d.angle <= math.pi
+
+
+def test_sessions():
+    with bs.Session.prefix("p0", "q0") as s:
+        r = s.push([{"left": ["p0", "a", "p1"]}, {"complete_left": "p0"}, {"complete_left": "p1"}])
+        assert r["verdict"]["bisimilar"]["verdict"] == "holds_so_far"
+        r = s.push([{"complete_right": "q0"}])
+        assert r["changed"] and r["verdict"]["bisimilar"]["witness"] == "⟨a⟩tt"
+        with pytest.raises(bs.ModelError, match="declared complete"):
+            s.push([{"right": ["q0", "a", "q1"]}])
+    assert s.closed
+    s.close()  # twice is harmless
+
+    tomato = "Tomato = (grow, 0.1).Big + (lose, 0.01).Lost; Big = (lose, 0.01).Lost; Lost = 0; Tomato[4]"
+    obs = pd.DataFrame({"date": ["25/05/2026", "14/06/2026"], "state": ["Big", "Lost"], "count": [2, 1]})
+    once = bs.Model(tomato).check_observations(obs, start="15/05/2026")
+    with bs.Session.observe(tomato, start="15/05/2026") as s:
+        s.push(obs.iloc[:1])
+        last = s.push(obs.iloc[1:])
+    assert last.explanation == once.explanation and len(last.table) == 2
+
+    with bs.Session.stream_distance(["ok", "sick"], ["ok", "sick"], {"ok": 0, "sick": 1}, gamma=0.8) as s:
+        step = {"a": ["ok", "sick"], "b": ["ok", "ok"]}
+        assert s.push([step, step]).steps == 2
+        with pytest.raises(bs.ModelError, match="nope"):
+            s.push([{"a": ["ok", "nope"], "b": ["ok", "ok"]}])
+        assert s.push([step]).steps == 3
+    with pytest.raises(bs.ModelError, match="no open session"):
+        s.push([step])

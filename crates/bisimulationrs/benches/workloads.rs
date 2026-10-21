@@ -201,8 +201,197 @@ fn bench_prism(c: &mut Criterion) {
     group.finish();
 }
 
+/// One event of a revealed prefix.
+#[derive(Clone, Copy)]
+enum Reveal {
+    Left((u32, char, u32)),
+    Right((u32, char, u32)),
+    /// Completes the state on both sides.
+    Complete(u32),
+}
+
+/// Two identical rings revealed one transition at a time (alternating
+/// sides, each state completed once its transitions are in). Every state
+/// reaches the last one to complete, so nothing settles before the end.
+fn ring_events(k: u32) -> Vec<Reveal> {
+    let mut events = Vec::new();
+    for i in 0..k {
+        for e in [(i, 'a', (i + 1) % k), (i, 'b', (i * 7 + 3) % k)] {
+            events.push(Reveal::Left(e));
+            events.push(Reveal::Right(e));
+        }
+        events.push(Reveal::Complete(i));
+    }
+    events
+}
+
+/// A never-ending harvest: a spine `8i —a→ 8(i+1)` whose states each start
+/// a finished episode (`b` then `c` or `d`), completed as soon as it is in.
+/// The right system also offers a poorer `b` episode (`c` only), so
+/// bisimilarity is violated while each system simulates the other, and the
+/// poorer answers are refuted along the way. The spine stays open; the
+/// episodes settle.
+fn harvest_events(k: u32) -> Vec<Reveal> {
+    let mut events = Vec::new();
+    for i in 0..k {
+        let (s, e, f, g, poor) = (8 * i, 8 * i + 1, 8 * i + 2, 8 * i + 3, 8 * i + 4);
+        for t in [(s, 'a', s + 8), (s, 'b', e), (e, 'c', f), (e, 'd', g)] {
+            events.push(Reveal::Left(t));
+            events.push(Reveal::Right(t));
+        }
+        events.push(Reveal::Right((s, 'b', poor)));
+        events.push(Reveal::Right((poor, 'c', f)));
+        for state in [s, e, f, g, poor] {
+            events.push(Reveal::Complete(state));
+        }
+    }
+    events
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Solve {
+    Incremental,
+    /// Incremental, compacting whenever the live positions have doubled.
+    Compact { minimise: bool },
+    Replay,
+}
+
+/// The size of a checker over a run.
+#[derive(Default)]
+struct Footprint {
+    /// Largest over the run (estimated heap bytes are only tracked when
+    /// measuring).
+    peak_positions: usize,
+    peak_bytes: usize,
+    /// At the end, after one last compaction in the compacting modes.
+    live_positions: usize,
+    held_pairs: usize,
+    heap_bytes: usize,
+}
+
+/// Reveals `events` with a verdict after each; returns how many verdicts
+/// were bisimilarity violations and the footprint (heap bytes after every
+/// event only when `measure`).
+fn run_prefix(events: &[Reveal], solve: Solve, measure: bool) -> (usize, Footprint) {
+    use bisimulationrs::refine::{GameBudget, PrefixChecker};
+    let mut c = PrefixChecker::new(0u32, 0u32).with_budget(GameBudget {
+        max_pairs: usize::MAX,
+        max_depth: u32::MAX,
+    });
+    let mut violated = 0;
+    let mut compacted_at = 1;
+    let mut footprint = Footprint::default();
+    for &event in events {
+        match event {
+            Reveal::Left(e) => c.observe_left([e]).expect("open state"),
+            Reveal::Right(e) => c.observe_right([e]).expect("open state"),
+            Reveal::Complete(s) => {
+                c.complete_left(s);
+                c.complete_right(s);
+            }
+        }
+        if let Solve::Compact { minimise } = solve {
+            if c.live_positions() >= 2 * compacted_at {
+                if minimise {
+                    c.compact_and_minimise();
+                } else {
+                    c.compact();
+                }
+                compacted_at = c.live_positions().max(1);
+            }
+        }
+        let v = if solve == Solve::Replay {
+            c.replay_verdict()
+        } else {
+            c.verdict()
+        };
+        violated += usize::from(v.bisimilar.is_violated());
+        footprint.peak_positions = footprint.peak_positions.max(c.live_positions());
+        if measure {
+            footprint.peak_bytes = footprint.peak_bytes.max(c.heap_bytes());
+        }
+    }
+    if let Solve::Compact { minimise } = solve {
+        if minimise {
+            c.compact_and_minimise();
+        } else {
+            c.compact();
+        }
+    }
+    footprint.live_positions = c.live_positions();
+    footprint.held_pairs = c.held_pairs();
+    footprint.heap_bytes = c.heap_bytes();
+    (violated, footprint)
+}
+
+fn bench_prefix(c: &mut Criterion) {
+    type Workload = (&'static str, fn(u32) -> Vec<Reveal>, [u32; 2]);
+    let workloads: [Workload; 2] = [
+        ("ring", ring_events, [250, 1_000]),
+        ("harvest", harvest_events, [100, 400]),
+    ];
+    let modes = [
+        ("incremental", Solve::Incremental),
+        ("compact", Solve::Compact { minimise: false }),
+        ("minimise", Solve::Compact { minimise: true }),
+    ];
+    // Memory: live positions and estimated heap bytes (games and observed
+    // systems) at their peak over the run, and at the end (after one last
+    // compaction in the compacting modes, which otherwise compact when the
+    // live positions have doubled).
+    eprintln!("prefix_stream footprint:");
+    eprintln!(
+        "{:<8} {:>6} {:<12} {:>10} {:>11} {:>10} {:>8} {:>11}",
+        "workload", "events", "mode", "peak pos", "peak bytes", "end pos", "held", "end bytes"
+    );
+    for (name, events, sizes) in workloads {
+        for k in sizes {
+            let events = events(k);
+            for (mode, solve) in modes {
+                let (_, f) = run_prefix(&events, solve, true);
+                eprintln!(
+                    "{name:<8} {:>6} {mode:<12} {:>10} {:>11} {:>10} {:>8} {:>11}",
+                    events.len(),
+                    f.peak_positions,
+                    f.peak_bytes,
+                    f.live_positions,
+                    f.held_pairs,
+                    f.heap_bytes
+                );
+            }
+        }
+    }
+
+    let mut group = c.benchmark_group("prefix_stream");
+    group.sample_size(10);
+    for (name, events, sizes) in workloads {
+        for k in sizes {
+            let events = events(k);
+            // Counted in observed transitions, as before completions
+            // became events.
+            let n = events
+                .iter()
+                .filter(|e| !matches!(e, Reveal::Complete(_)))
+                .count() as u64;
+            let mut runs = modes.to_vec();
+            runs.push(("replay", Solve::Replay));
+            for (mode, solve) in runs {
+                if solve == Solve::Replay && k > sizes[0] && name == "harvest" {
+                    continue; // quadratic: the small size makes the point
+                }
+                let id = BenchmarkId::new(format!("{name}/{mode}"), n);
+                group.bench_with_input(id, &events, |b, events| {
+                    b.iter(|| black_box(run_prefix(events, solve, false).0))
+                });
+            }
+        }
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
+    bench_prefix,
     bench_refinement,
     bench_structured,
     bench_cycles,

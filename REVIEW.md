@@ -77,7 +77,7 @@ without an answer from a complete state), `Holds` means everything involved
 is complete, and the new `Verdict::HoldsSoFar` means no difference yet. A
 property test reveals random system pairs in random order and checks that no
 violation is ever retracted and that the final verdicts equal `compare`.
-It replays the game on each `verdict()` call; it is not yet incremental.
+Update (21/10/2026): it is now incremental. The three games are updated in place per event (`bisim-refine/src/live.rs`), transitions from complete states are rejected, and the old replay is kept as `replay_verdict`, the reference the incremental answer is tested against after every event.
 Testing: mutation fuzzing of all three parsers (90,000 inputs, no panics
 found), larger random property tests, stiff and reducible chains with closed
 forms. Five runnable examples are in `crates/bisimulationrs/examples/`.

@@ -47,8 +47,17 @@ __all__ = [
     "Comparison",
     "ObservationReport",
     "FitResult",
+    "Distance",
+    "EpsDelta",
+    "StreamDistance",
+    "Dsa",
+    "Session",
     "check",
     "compare",
+    "distance",
+    "epsdelta",
+    "stream_distance",
+    "dsa",
     "read_observations",
 ]
 
@@ -722,3 +731,344 @@ def compare(a: Union[Model, str], b: Union[Model, str], *, max_states: int = 200
         ),
         note=r.get("note"),
     )
+
+
+# -- how far apart -------------------------------------------------------------
+
+
+def _atom(state: Union[str, tuple, dict], component: Optional[str] = None) -> dict:
+    if isinstance(state, dict):
+        return {k: str(v) for k, v in state.items() if k in ("component", "state") and v is not None}
+    if isinstance(state, tuple):
+        component, state = state
+    atom = {"state": str(state)}
+    if component is not None:
+        atom["component"] = str(component)
+    return atom
+
+
+def _ok(response: dict, label: str):
+    if "error" in response:
+        raise ModelError(_diagnostics(response["error"]), label=label)
+    return response["ok"]
+
+
+@dataclass(frozen=True)
+class Distance:
+    """How far apart two models are, seen through one count (see :func:`distance`).
+
+    ``distance`` is in [0, 1]: 0 when the count cannot tell the models apart,
+    1 when it always differs by its whole range (``scale``). The true value is
+    within ``error_bound`` of it. ``pairs`` lists the state pairs that add
+    most to it: the gap in the count (as a share of ``scale``), the
+    discounted share of time spent in the pair, and the contribution.
+    """
+
+    distance: float
+    error_bound: float
+    half_life: float
+    scale: float
+    pairs: pd.DataFrame
+    explanation: str
+
+    def __float__(self) -> float:
+        return self.distance
+
+    def __repr__(self) -> str:
+        return f"<Distance {self.distance:.4f}: {self.explanation}>"
+
+
+def distance(
+    a: Union[Model, str],
+    b: Union[Model, str],
+    state: Union[str, tuple, dict],
+    half_life: float,
+    *,
+    component: Optional[str] = None,
+    max_states: int = 200_000,
+) -> Distance:
+    """How differently models ``a`` and ``b`` behave, seen through the count of ``state``.
+
+    Both models run side by side in the way that makes the count look most
+    alike; differences ``half_life`` time units ahead count half (a
+    bisimulation distance, Calo et al., NeurIPS 2024). Give ``component``
+    (or ``state=(component, state)``) when the model has several components.
+    """
+    r = _ok(
+        _call(
+            {
+                "op": "distance",
+                "a": _source(a),
+                "b": _source(b),
+                "observe": _atom(state, component),
+                "half_life": float(half_life),
+                "max_states": max_states,
+            }
+        ),
+        "distance",
+    )
+    return Distance(
+        distance=r["distance"],
+        error_bound=r["error_bound"],
+        half_life=r["half_life"],
+        scale=r["scale"],
+        pairs=pd.DataFrame(r["pairs"], columns=["a", "b", "gap", "occupancy", "contribution"]),
+        explanation=r["explanation"],
+    )
+
+
+@dataclass(frozen=True)
+class EpsDelta:
+    """Whether two models are within a tolerance (see :func:`epsdelta`).
+
+    ``min_epsilon`` is the smallest tolerance on jump probabilities at which
+    the models are related (None: none is enough); ``within`` answers for the
+    requested ``epsilon``. With a horizon, ``reach_bound`` bounds how much the
+    probability of reaching any labelled situation by then can differ.
+    """
+
+    delta: float
+    min_epsilon: Optional[float]
+    within: Optional[bool]
+    rate: float
+    reach_bound: Optional[float]
+    rate_only_bound: Optional[float]
+    explanation: str
+
+    def __repr__(self) -> str:
+        return f"<EpsDelta: {self.explanation}>"
+
+
+def epsdelta(
+    a: Union[Model, str],
+    b: Union[Model, str],
+    labels: Union[str, tuple, dict, Iterable],
+    delta: float,
+    *,
+    epsilon: Optional[float] = None,
+    horizon: Optional[float] = None,
+    max_states: int = 200_000,
+) -> EpsDelta:
+    """Are ``a`` and ``b`` within ``epsilon`` on jump probabilities and a factor ``e**delta`` on rates?
+
+    States are labelled by the counts of ``labels`` (a state name, a
+    ``(component, state)`` tuple, or a list of them); related states must
+    have equal labels ((ε, δ)-bisimulation, Spork et al., CAV 2025). Without
+    ``epsilon``, only the smallest one is reported.
+    """
+    if isinstance(labels, (str, tuple, dict)):
+        labels = [labels]
+    r = _ok(
+        _call(
+            {
+                "op": "epsdelta",
+                "a": _source(a),
+                "b": _source(b),
+                "labels": [_atom(l) for l in labels],
+                "epsilon": None if epsilon is None else float(epsilon),
+                "delta": float(delta),
+                "horizon": None if horizon is None else float(horizon),
+                "max_states": max_states,
+            }
+        ),
+        "tolerance check",
+    )
+    return EpsDelta(**{k: r[k] for k in EpsDelta.__dataclass_fields__})
+
+
+@dataclass(frozen=True)
+class StreamDistance:
+    """A distance estimated from two logs of states, without a model (see :func:`stream_distance`).
+
+    ``matching`` maps each state of log A to the state of log B it is paired
+    with. The estimate settles slowly; compare logs of equal length.
+    """
+
+    estimate: float
+    steps: int
+    matching: dict
+    explanation: str
+
+    def __float__(self) -> float:
+        return self.estimate
+
+    def __repr__(self) -> str:
+        return f"<StreamDistance {self.estimate:.4f} after {self.steps} steps>"
+
+
+def _stream(r: dict, explanation: str = "") -> StreamDistance:
+    return StreamDistance(
+        estimate=r["estimate"],
+        steps=r["steps"],
+        matching={x: y for x, y in r["matching"]},
+        explanation=r.get("explanation", explanation),
+    )
+
+
+def stream_distance(a: Iterable[str], b: Iterable[str], values: dict, gamma: float) -> StreamDistance:
+    """Estimates the distance between two logged state sequences (Calo et al., NeurIPS 2025).
+
+    Consecutive entries of each log are transitions; ``values`` gives each
+    state's observation (e.g. ``{"ok": 0, "sick": 1}``) and ``gamma`` in
+    (0, 1) discounts later steps.
+    """
+    r = _ok(
+        _call(
+            {
+                "op": "stream_distance",
+                "a": [str(s) for s in a],
+                "b": [str(s) for s in b],
+                "values": {str(k): float(v) for k, v in values.items()},
+                "gamma": float(gamma),
+            }
+        ),
+        "stream distance",
+    )
+    return _stream(r)
+
+
+@dataclass(frozen=True)
+class Dsa:
+    """Dynamical similarity of two series (see :func:`dsa`); ``angle`` is in radians."""
+
+    distance: float
+    angle: float
+    explanation: str
+
+    def __float__(self) -> float:
+        return self.distance
+
+    def __repr__(self) -> str:
+        return f"<Dsa: {self.explanation}>"
+
+
+def _series(x) -> list[list[float]]:
+    if isinstance(x, pd.DataFrame):
+        x = x.to_numpy()
+    if hasattr(x, "tolist"):
+        x = x.tolist()
+    return [[float(v) for v in row] if isinstance(row, (list, tuple)) else [float(row)] for row in x]
+
+
+def dsa(x, y, *, delays: Optional[int] = None, rank: Optional[int] = None) -> Dsa:
+    """Compares how two sensor series evolve (Ostrow et al., NeurIPS 2023).
+
+    ``x`` and ``y`` are tables with one row per time step and one column per
+    channel (a DataFrame, an array, or a list of rows; a flat list is one
+    channel). Levels do not matter, only the fitted dynamics. Not a bisimulation.
+    """
+    r = _ok(
+        _call({"op": "dsa", "x": _series(x), "y": _series(y), "delays": delays, "rank": rank}),
+        "series comparison",
+    )
+    return Dsa(r["distance"], r["angle"], r["explanation"])
+
+
+class Session:
+    """A comparison that is updated as observations arrive.
+
+    Open one with :meth:`prefix`, :meth:`observe` or :meth:`stream_distance`,
+    then :meth:`push` events; each push returns the updated answer without
+    recomputing what came before. Close it when done (or use ``with``; it is
+    also closed when garbage collected)::
+
+        with bs.Session.observe(plan, start="15/05/2026") as s:
+            s.push([{"date": "25/05/2026", "state": "Big", "count": 2}])
+    """
+
+    def __init__(self, spec: dict):
+        self.kind = spec["kind"]
+        self.id = _ok(_call({"op": "session_open", "session": spec}), "session")["id"]
+        self.closed = False
+
+    @classmethod
+    def prefix(cls, left: str, right: str, *, max_pairs: Optional[int] = None) -> "Session":
+        """Two systems observed transition by transition, from initial states ``left`` and ``right``.
+
+        Push events ``{"left": [s, a, t]}``, ``{"right": [s, a, t]}``,
+        ``{"complete_left": s}`` and ``{"complete_right": s}`` (no more
+        transitions from ``s``). Each push returns ``{"changed", "verdict"}``.
+        """
+        spec = {"kind": "prefix", "left": left, "right": right}
+        if max_pairs is not None:
+            spec["max_pairs"] = int(max_pairs)
+        return cls(spec)
+
+    @classmethod
+    def observe(
+        cls,
+        model: Union[Model, str],
+        start: Union[str, "date"],
+        unit: str = "day",
+        level: float = 0.95,
+        *,
+        max_states: int = 200_000,
+    ) -> "Session":
+        """Dated counts against a plan, as in :meth:`Model.check_observations`; push counts as they come."""
+        return cls(
+            {
+                "kind": "observe",
+                "source": _source(model),
+                "timeline": _timeline(start, unit, level),
+                "max_states": max_states,
+            }
+        )
+
+    @classmethod
+    def stream_distance(
+        cls, states_a: Iterable[str], states_b: Iterable[str], values: dict, gamma: float
+    ) -> "Session":
+        """The sample distance of :func:`stream_distance`, one step at a time.
+
+        Push steps ``{"a": [from, to], "b": [from, to]}``; ``states_a`` and
+        ``states_b`` list the states each log can be in.
+        """
+        return cls(
+            {
+                "kind": "stream_distance",
+                "states_a": [str(s) for s in states_a],
+                "states_b": [str(s) for s in states_b],
+                "values": {str(k): float(v) for k, v in values.items()},
+                "gamma": float(gamma),
+            }
+        )
+
+    def push(self, events):
+        """Adds events; returns the updated answer.
+
+        An :class:`ObservationReport` for ``observe`` (events may be a
+        DataFrame or list of dicts), a :class:`StreamDistance` for
+        ``stream_distance``, and a dict for ``prefix``.
+        """
+        if self.kind == "observe":
+            events = _observations(events)
+        else:
+            events = list(events)
+        r = _ok(_call({"op": "session_push", "id": self.id, "events": events}), "session")
+        if self.kind == "observe":
+            return ObservationReport._from(r)
+        if self.kind == "stream_distance":
+            return _stream(r, f"Estimated from {r['steps']} observed transition pairs.")
+        return r
+
+    def close(self) -> None:
+        """Frees the session; closing twice is harmless."""
+        if not self.closed:
+            self.closed = True
+            _call({"op": "session_close", "id": self.id})
+
+    def __del__(self) -> None:
+        # Sessions are capped per process; free one that was never closed.
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def __enter__(self) -> "Session":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def __repr__(self) -> str:
+        return f"<Session {self.id} ({self.kind}{', closed' if self.closed else ''})>"

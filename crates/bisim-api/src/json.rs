@@ -29,9 +29,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{
-    Intervention, Observation, Options, Timeline, analyse, analyse_jani, analyse_prism, attribute,
-    check, check_jani, check_observations, check_prism, compare, fit_parameters, fluid, forecast,
-    query_jani, query_prism, transient, what_if,
+    Atom, Intervention, Observation, Options, Timeline, analyse, analyse_jani, analyse_prism,
+    attribute, check, check_jani, check_observations, check_prism, compare, distance, dsa,
+    epsdelta, fit_parameters_from, fluid, forecast, query_jani, query_prism, stream_distance,
+    transient, what_if,
 };
 
 #[derive(Deserialize)]
@@ -91,6 +92,8 @@ enum Request {
         timeline: Timeline,
         observations: Vec<Observation>,
         params: Vec<String>,
+        /// Start the search here (e.g. the previous fit) instead of the plan.
+        start: Option<Vec<f64>>,
         max_states: Option<usize>,
     },
     Query {
@@ -118,6 +121,48 @@ enum Request {
         times: Vec<f64>,
         interventions: Vec<Intervention>,
         max_states: Option<usize>,
+    },
+    #[serde(rename = "session_open")]
+    SessionOpen {
+        session: crate::session::OpenSpec,
+    },
+    #[serde(rename = "session_push")]
+    SessionPush {
+        id: u64,
+        events: Value,
+    },
+    #[serde(rename = "session_close")]
+    SessionClose {
+        id: u64,
+    },
+    Distance {
+        a: String,
+        b: String,
+        observe: Atom,
+        half_life: f64,
+        max_states: Option<usize>,
+    },
+    Epsdelta {
+        a: String,
+        b: String,
+        labels: Vec<Atom>,
+        epsilon: Option<f64>,
+        delta: f64,
+        horizon: Option<f64>,
+        max_states: Option<usize>,
+    },
+    #[serde(rename = "stream_distance")]
+    StreamDistance {
+        a: Vec<String>,
+        b: Vec<String>,
+        values: std::collections::HashMap<String, f64>,
+        gamma: f64,
+    },
+    Dsa {
+        x: Vec<Vec<f64>>,
+        y: Vec<Vec<f64>>,
+        delays: Option<usize>,
+        rank: Option<usize>,
     },
     Attribute {
         plan: String,
@@ -226,11 +271,13 @@ fn handle(request: &str) -> Value {
             timeline,
             observations,
             params,
+            start,
             max_states,
-        }) => respond(fit_parameters(
+        }) => respond(fit_parameters_from(
             &source,
             &observations,
             &params,
+            start.as_deref(),
             &timeline,
             options(max_states),
         )),
@@ -244,6 +291,40 @@ fn handle(request: &str) -> Value {
             query,
             max_states,
         }) => respond(query_jani(&source, &query, options(max_states))),
+        Ok(Request::SessionOpen { session }) => respond(crate::session::open(session, options)),
+        Ok(Request::SessionPush { id, events }) => respond(crate::session::push(id, events)),
+        Ok(Request::SessionClose { id }) => respond(crate::session::close(id)),
+        Ok(Request::Distance {
+            a,
+            b,
+            observe,
+            half_life,
+            max_states,
+        }) => respond(distance(&a, &b, &observe, half_life, options(max_states))),
+        Ok(Request::Epsdelta {
+            a,
+            b,
+            labels,
+            epsilon,
+            delta,
+            horizon,
+            max_states,
+        }) => respond(epsdelta(
+            &a,
+            &b,
+            &labels,
+            epsilon,
+            delta,
+            horizon,
+            options(max_states),
+        )),
+        Ok(Request::StreamDistance {
+            a,
+            b,
+            values,
+            gamma,
+        }) => respond(stream_distance(&a, &b, &values, gamma)),
+        Ok(Request::Dsa { x, y, delays, rank }) => respond(dsa(&x, &y, delays, rank)),
         Ok(Request::WhatIf {
             source,
             timeline,

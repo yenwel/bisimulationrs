@@ -27,20 +27,30 @@ const MAX_STEP_BOUND: f64 = 1e8;
 
 mod attribution;
 mod engine;
+mod metric;
 mod observe;
 
 pub use observe::{
-    FitReport, FittedParam, Forecast, Observation, ObservationReport, ObservationResult, Status,
-    TimeUnit, Timeline, check_observations, fit_parameters, forecast, format_date, parse_date,
+    FitReport, FittedParam, Forecast, Observation, ObservationReport, ObservationResult,
+    ObserveSession, Status, TimeUnit, Timeline, check_observations, fit_parameters,
+    fit_parameters_from, forecast, format_date, parse_date,
 };
 
 #[cfg(feature = "json")]
 mod json;
 #[cfg(feature = "json")]
+mod session;
+#[cfg(feature = "json")]
 pub use attribution::{
     Attribution, Contribution, Intervention, MAX_ATTRIBUTION_PARAMS, WhatIf, attribute, what_if,
 };
 pub use json::{PROTOCOL_VERSION, handle_json};
+pub use metric::{
+    Atom, DistanceReport, DsaReport, EpsDeltaReport, PairView, StreamReport, distance, dsa,
+    epsdelta, stream_distance,
+};
+#[cfg(feature = "json")]
+pub use session::{MAX_EVENTS_PER_PUSH, MAX_SESSION_PAIRS, MAX_SESSIONS};
 
 /// An error or warning in a model, with a 1-based position when known
 /// (`line = 0` means the problem is not tied to one place).

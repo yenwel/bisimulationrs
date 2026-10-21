@@ -384,29 +384,84 @@ fn evaluate(
     timeline: &Timeline,
     options: Options,
 ) -> Result<(ObservationReport, f64), Vec<Diagnostic>> {
-    if !(0.5..1.0).contains(&timeline.level) {
-        return Err(error(
-            "the range level must be between 0.5 and 1 (e.g. 0.95)",
-        ));
-    }
-    if obs.is_empty() {
-        return Err(error("add at least one observation"));
-    }
-    let eval = Evaluator::new(model, options)?;
-    let resolved = resolve(&eval, obs, timeline)?;
-    let times: Vec<f64> = resolved.iter().map(|r| r.elapsed).collect();
-    let snaps = eval.snapshots(&times);
-    ensure_finite(&snaps)?;
+    let mut session = ObserveSession::from_model(model, timeline, options)?;
+    let report = session.push(obs)?;
+    Ok((report, session.log_likelihood))
+}
 
-    let mut log_likelihood = 0.0;
-    let rows: Vec<ObservationResult> = resolved
-        .iter()
-        .zip(obs)
-        .enumerate()
-        .map(|(i, (r, o))| {
-            let dist = eval.count_distribution(&snaps, i, r.leaf, &r.matched);
-            log_likelihood += dist.prob(o.count).max(1e-300).ln();
-            let (low, high) = dist.central_range(timeline.level);
+/// Dated counts checked against a plan as they come in. Each count advances
+/// the model from the previous date instead of recomputing from the start
+/// (a count dated earlier than the latest one is computed from the start),
+/// and the verdict covers every count so far, exactly as
+/// [`check_observations`] on all of them.
+pub struct ObserveSession {
+    eval: Evaluator,
+    timeline: Timeline,
+    cursor: crate::engine::Cursor,
+    rows: Vec<ObservationResult>,
+    log_likelihood: f64,
+}
+
+impl std::fmt::Debug for ObserveSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ObserveSession")
+            .field("rows", &self.rows.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ObserveSession {
+    /// A session for the plan in `source`.
+    pub fn new(
+        source: &str,
+        timeline: &Timeline,
+        options: Options,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        let model = parse_pepa(source).map_err(|e| vec![diagnostic(&e)])?;
+        Self::from_model(&model, timeline, options)
+    }
+
+    fn from_model(
+        model: &PepaModel<Sym>,
+        timeline: &Timeline,
+        options: Options,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        if !(0.5..1.0).contains(&timeline.level) {
+            return Err(error(
+                "the range level must be between 0.5 and 1 (e.g. 0.95)",
+            ));
+        }
+        parse_date(&timeline.start).map_err(|e| error(format!("start date: {e}")))?;
+        let eval = Evaluator::new(model, options)?;
+        let cursor = eval.cursor();
+        Ok(Self {
+            eval,
+            timeline: timeline.clone(),
+            cursor,
+            rows: Vec::new(),
+            log_likelihood: 0.0,
+        })
+    }
+
+    /// Adds counts (all or none: a count that cannot be resolved adds
+    /// nothing) and returns the report on every count so far.
+    pub fn push(&mut self, obs: &[Observation]) -> Result<ObservationReport, Vec<Diagnostic>> {
+        if obs.is_empty() && self.rows.is_empty() {
+            return Err(error("add at least one observation"));
+        }
+        let resolved = resolve(&self.eval, obs, &self.timeline)?;
+        // In time order, so each count advances from the previous one.
+        let mut order: Vec<usize> = (0..obs.len()).collect();
+        order.sort_by(|&a, &b| resolved[a].elapsed.total_cmp(&resolved[b].elapsed));
+        let mut new_rows: Vec<Option<ObservationResult>> = vec![None; obs.len()];
+        let mut ll = 0.0;
+        for i in order {
+            let (r, o) = (&resolved[i], &obs[i]);
+            let snaps = self.eval.snapshot_at(&mut self.cursor, r.elapsed);
+            ensure_finite(&snaps)?;
+            let dist = self.eval.count_distribution(&snaps, 0, r.leaf, &r.matched);
+            ll += dist.prob(o.count).max(1e-300).ln();
+            let (low, high) = dist.central_range(self.timeline.level);
             let status = if o.count < low {
                 Status::BelowPlan
             } else if o.count > high {
@@ -414,7 +469,7 @@ fn evaluate(
             } else {
                 Status::OnTrack
             };
-            ObservationResult {
+            new_rows[i] = Some(ObservationResult {
                 date: r.date.clone(),
                 elapsed: r.elapsed,
                 component: r.leaf_name.clone(),
@@ -425,71 +480,78 @@ fn evaluate(
                 high,
                 p_value: dist.p_value(o.count),
                 status,
-            }
-        })
-        .collect();
+            });
+        }
+        self.rows.extend(new_rows.into_iter().flatten());
+        self.log_likelihood += ll;
+        self.report()
+    }
 
-    let checks = rows.len();
-    let threshold = (1.0 - timeline.level) / checks as f64;
-    let outside = rows.iter().filter(|r| r.status != Status::OnTrack).count();
-    let worst = rows
-        .iter()
-        .min_by(|a, b| a.p_value.total_cmp(&b.p_value))
-        .expect("at least one row");
-    let on_track = worst.p_value >= threshold;
-    let pct = format!("{:.0} %", timeline.level * 100.0);
-    let explanation = if outside == 0 {
-        format!("On track: all {checks} counts are within their {pct} ranges.")
-    } else if on_track {
-        format!(
-            "Still consistent with the plan: {outside} of {checks} counts fall outside their {pct} range, \
-             but with {checks} checks that can happen by chance (smallest p-value {}, \
-             off plan would need below {}).",
-            fmt_p(worst.p_value),
-            fmt_p(threshold)
-        )
-    } else {
-        format!(
-            "Off plan: {outside} of {checks} counts fall outside their {pct} range. \
-             {} {} on {} ({} counted, {:.1} expected, range {}–{}) is too far off to be chance \
-             (p = {}, below {}).",
-            worst.component,
-            worst.state,
-            worst.date,
-            worst.observed,
-            worst.expected,
-            worst.low,
-            worst.high,
-            fmt_p(worst.p_value),
-            fmt_p(threshold)
-        )
-    };
-    let methods = eval
-        .leaves()
-        .iter()
-        .enumerate()
-        .map(|(k, l)| {
-            if eval.is_independent(k) {
-                format!("{}: binomial over {} independent copies", l.name, l.copies)
-            } else {
-                format!("{}: exact distribution from the full Markov chain", l.name)
-            }
-        })
-        .collect();
-    Ok((
-        ObservationReport {
+    /// The report on every count so far.
+    pub fn report(&self) -> Result<ObservationReport, Vec<Diagnostic>> {
+        let (rows, timeline, eval) = (&self.rows, &self.timeline, &self.eval);
+        let checks = rows.len();
+        if checks == 0 {
+            return Err(error("add at least one observation"));
+        }
+        let threshold = (1.0 - timeline.level) / checks as f64;
+        let outside = rows.iter().filter(|r| r.status != Status::OnTrack).count();
+        let worst = rows
+            .iter()
+            .min_by(|a, b| a.p_value.total_cmp(&b.p_value))
+            .expect("at least one row");
+        let on_track = worst.p_value >= threshold;
+        let pct = format!("{:.0} %", timeline.level * 100.0);
+        let explanation = if outside == 0 {
+            format!("On track: all {checks} counts are within their {pct} ranges.")
+        } else if on_track {
+            format!(
+                "Still consistent with the plan: {outside} of {checks} counts fall outside their {pct} range, \
+                 but with {checks} checks that can happen by chance (smallest p-value {}, \
+                 off plan would need below {}).",
+                fmt_p(worst.p_value),
+                fmt_p(threshold)
+            )
+        } else {
+            format!(
+                "Off plan: {outside} of {checks} counts fall outside their {pct} range. \
+                 {} {} on {} ({} counted, {:.1} expected, range {}–{}) is too far off to be chance \
+                 (p = {}, below {}).",
+                worst.component,
+                worst.state,
+                worst.date,
+                worst.observed,
+                worst.expected,
+                worst.low,
+                worst.high,
+                fmt_p(worst.p_value),
+                fmt_p(threshold)
+            )
+        };
+        let methods = eval
+            .leaves()
+            .iter()
+            .enumerate()
+            .map(|(k, l)| {
+                if eval.is_independent(k) {
+                    format!("{}: binomial over {} independent copies", l.name, l.copies)
+                } else {
+                    format!("{}: exact distribution from the full Markov chain", l.name)
+                }
+            })
+            .collect();
+        Ok(ObservationReport {
             start: format_date(parse_date(&timeline.start).map_err(error)?),
             unit: timeline.unit,
             level: timeline.level,
-            rows,
+            rows: rows.clone(),
             on_track,
             outside_range: outside,
             threshold,
             explanation,
             methods,
-        },
-        log_likelihood,
-    ))
+        })
+    }
 }
 
 /// Checks dated counts against the plan.
@@ -623,7 +685,26 @@ pub fn fit_parameters(
     timeline: &Timeline,
     options: Options,
 ) -> Result<FitReport, Vec<Diagnostic>> {
+    fit_parameters_from(source, observations, params, None, timeline, options)
+}
+
+/// [`fit_parameters`] starting the search from `start` (one positive value
+/// per parameter, e.g. the previous fit when new counts arrive) instead of
+/// the planned values. The report still compares with the plan.
+pub fn fit_parameters_from(
+    source: &str,
+    observations: &[Observation],
+    params: &[String],
+    start: Option<&[f64]>,
+    timeline: &Timeline,
+    options: Options,
+) -> Result<FitReport, Vec<Diagnostic>> {
     let model = parse_pepa(source).map_err(|e| vec![diagnostic(&e)])?;
+    if let Some(start) = start
+        && (start.len() != params.len() || start.iter().any(|v| !(v.is_finite() && *v > 0.0)))
+    {
+        return Err(error("start needs one positive value per fitted parameter"));
+    }
     if params.is_empty() {
         return Err(error("choose at least one parameter to fit"));
     }
@@ -656,7 +737,7 @@ pub fn fit_parameters(
             .zip(x)
             .fold(model.clone(), |m, (id, v)| m.with_param(*id, v.exp()))
     };
-    let x0: Vec<f64> = planned.iter().map(|v| v.ln()).collect();
+    let x0: Vec<f64> = start.unwrap_or(&planned).iter().map(|v| v.ln()).collect();
     let (best, _) = nelder_mead(
         |x| match evaluate(&with(x), observations, timeline, options) {
             Ok((_, ll)) => -ll,

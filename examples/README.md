@@ -11,9 +11,13 @@ Runnable Rust programs (`cargo run -p bisimulationrs --example <name>`):
 |---|---|
 | `compare_systems` | simulation vs bisimulation, and the distinguishing formula `⟨a⟩¬⟨c⟩tt` |
 | `minimise_symmetry` | lumping three identical animals (27 → 10 states) with the same transient behaviour |
-| `prefix_stream` | verdicts over a growing prefix: "holds so far" until a difference can no longer be repaired |
+| `prefix_stream` | verdicts over a growing prefix, updated per observation: "holds so far" until a difference can no longer be repaired |
 | `steady_state` | long-run distribution of a chain with very different time scales |
 | `prism_model` | importing a PRISM queue and checking the long-run answer against the closed form |
+| `behaviour_distance` | a number for how differently a guild and a monoculture behave, the situations that drive it, and 0 for the same bed written plant by plant |
+| `tolerance_plan` | a herd within (ε, δ) of its plan, the guaranteed bound on reaching cull weight next to the actual difference |
+| `inspection_logs` | the distance estimated from weekly inspection logs alone, picking the plan closest to the truth |
+| `sensor_similarity` | dynamical similarity of sensor series: 0 for remixed sensors, positive for a bed without companions |
 
 ## Population models from biology, ecology and economics
 

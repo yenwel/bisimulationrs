@@ -32,4 +32,7 @@ pub use ctmc::Ctmc;
 pub use fluid::{integrate, integrate_fixed};
 pub use optimize::nelder_mead;
 pub use reach::{MatrixError, bounded_steps, dtmc_matrix, unbounded_reach};
-pub use simulate::{LearnedRate, LogEvent, SsaStep, Trajectory, ensemble, gillespie, learn_rates};
+pub use simulate::{
+    LearnedRate, LogEvent, OnlineRates, SsaStep, Trajectory, ensemble, gillespie,
+    gillespie_continue, learn_rates,
+};

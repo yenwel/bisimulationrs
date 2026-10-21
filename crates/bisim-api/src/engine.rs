@@ -39,6 +39,14 @@ impl Snapshots {
     }
 }
 
+/// Where an evaluation has got to: the distributions at `time`, so that a
+/// later time is reached by advancing from here instead of from 0.
+pub(crate) struct Cursor {
+    time: f64,
+    local: Vec<Option<Vec<f64>>>,
+    full: Option<Vec<f64>>,
+}
+
 /// Distributions at increasing times, advancing from one time to the next.
 fn advance(ctmc: &Ctmc, times: &[f64]) -> Vec<Vec<f64>> {
     let mut order: Vec<usize> = (0..times.len()).collect();
@@ -128,6 +136,50 @@ impl Evaluator {
                 .map(|c| c.as_ref().map(|c| advance(&c.ctmc, times)))
                 .collect(),
             full: self.full.as_ref().map(|(_, ctmc)| advance(ctmc, times)),
+        }
+    }
+
+    /// The distributions at time 0.
+    pub(crate) fn cursor(&self) -> Cursor {
+        Cursor {
+            time: 0.0,
+            local: self
+                .local
+                .iter()
+                .map(|c| c.as_ref().map(|c| c.ctmc.initial_distribution()))
+                .collect(),
+            full: self
+                .full
+                .as_ref()
+                .map(|(_, ctmc)| ctmc.initial_distribution()),
+        }
+    }
+
+    /// Snapshots at the single time `t`. Advances `cursor` when `t` is not
+    /// earlier than it (the same steps as [`snapshots`](Self::snapshots)
+    /// over sorted times); an earlier `t` is computed from 0 and leaves the
+    /// cursor where it is.
+    pub(crate) fn snapshot_at(&self, cursor: &mut Cursor, t: f64) -> Snapshots {
+        if t < cursor.time {
+            return self.snapshots(&[t]);
+        }
+        let dt = t - cursor.time;
+        for (c, p) in self.local.iter().zip(&mut cursor.local) {
+            if let (Some(c), Some(p)) = (c, p) {
+                *p = c.ctmc.transient(p, dt, 1e-10);
+            }
+        }
+        if let (Some((_, ctmc)), Some(p)) = (&self.full, &mut cursor.full) {
+            *p = ctmc.transient(p, dt, 1e-10);
+        }
+        cursor.time = t;
+        Snapshots {
+            local: cursor
+                .local
+                .iter()
+                .map(|p| p.clone().map(|p| vec![p]))
+                .collect(),
+            full: cursor.full.clone().map(|p| vec![p]),
         }
     }
 

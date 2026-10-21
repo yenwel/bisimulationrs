@@ -13,6 +13,7 @@ bisim-core.workspace = true
 bisim-refine.workspace = true
 bisim-algebra.workspace = true
 bisim-stochastic.workspace = true
+bisim-metric.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true, optional = true }
 

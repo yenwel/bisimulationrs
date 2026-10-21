@@ -52,9 +52,10 @@ The long-term objective is to compare non-deterministic, potentially infinite or
 | `bisim-algebra` | PEPA: AST, typed builder, `.pepa` parser and printer, validator, SOS derivation (cooperation with apparent rates, passive rates, functional `#Count` rates, hiding, arrays in counting form), fluid drift; PRISM `dtmc`/`ctmc` subset import (consts, formulas, synchronising modules, rewards, `system` blocks, queries); JANI subset import (Storm/Modest interchange) |
 | `bisim-pepa-macros` | `pepa!`: PEPA models checked at compile time (functional rates included) |
 | `bisim-stochastic` | CTMC from a rate-labelled system: steady state, transient analysis by uniformisation, Gillespie SSA trajectories and ensembles, event logs + MLE rate learning, fluid RK4 integration, DTMC/CTMC reachability solvers |
-| `bisim-api` | plain, serialisable API (check, analyse, analyse_prism, analyse_jani, query, fluid, over time, compare, observations, forecast, fit) and one JSON entry point shared by all bindings |
+| `bisim-metric` | behavioural distances: the optimal-transport bisimulation metric (exact policy iteration with a certified error bound, and Sinkhorn Value Iteration; Calo et al., NeurIPS 2024), (ε, δ)-bisimulation for CTMCs with its reachability bounds (Spork et al., CAV 2025), the distance estimated from sample streams (Calo et al., NeurIPS 2025), dynamical similarity analysis of sensor series (Ostrow et al., NeurIPS 2023) |
+| `bisim-api` | plain, serialisable API (check, analyse, analyse_prism, analyse_jani, query, fluid, over time, compare, observations, forecast, fit, distance, epsdelta, stream_distance, dsa) and one JSON entry point shared by all bindings, with stateful sessions (`session_open` / `session_push` / `session_close`) for prefix comparison, observation tracking and stream distances |
 | `bisim-wasm` | the API compiled to WebAssembly for the web editor |
-| `bisimulationrs` | facade re-exporting everything; `legacy` keeps the 0.1 API (deprecated) |
+| `bisimulationrs` | facade re-exporting everything; `streaming` turns iterators and `futures_core::Stream`s of observations into streams of changed verdicts; `legacy` keeps the 0.1 API (deprecated) |
 
 Bindings and tools built on `bisim-api`, so they all give the same answers:
 
@@ -88,6 +89,17 @@ let p = ctmc.transient(&ctmc.initial_distribution(), 30.0, 1e-9);
 
 `bisimilar` and `compare` return a `Verdict`; a violation carries a Hennessy–Milner formula that holds in one system and not in the other, e.g. `⟨disease⟩⟨healing⟩tt` or `⟨start⟩=2 tt` for a rate difference.
 
+**How far apart, not just whether.** `bisim-metric` answers with numbers:
+
+| question | method | guarantee | caveat |
+|---|---|---|---|
+| how differently do two models behave, seen through a count? | bisimulation distance (`bisim_distance`, op `distance`) | exact up to a reported error bound; 0 exactly for bisimilar states | needs both models; explores reachable state pairs |
+| is the system within tolerance of the plan? | (ε, δ)-bisimulation (`min_epsilon`, op `epsdelta`) | bounds time-bounded reachability (Prop. 3) | the bound is loose and grows with the horizon |
+| how far apart are two *logged* systems? | distance from samples (`SampleDistance`, op `stream_distance`, sessions) | converges as 1/√transitions | needs very many transitions (≈10⁶ for ±0.07 on 4 states) |
+| do two sensor series evolve alike? | DSA (`dsa`, op `dsa`) | invariant to rotations of the sensor coordinates | compares fitted linear dynamics; not a bisimulation |
+
+Examples: `behaviour_distance`, `tolerance_plan`, `inspection_logs`, `sensor_similarity`.
+
 ## Streaming-first architecture (recommended)
 
 The listed references converge on a practical architecture:
@@ -111,6 +123,15 @@ The listed references converge on a practical architecture:
 
 5. **Quantitative and stochastic extension path**
    - Add pseudometrics and confidence-aware verdict streams (`HoldsSoFar`, `Violated`, `Unknown(p)`), especially for data-derived models.
+
+Status (21/10/2026): point 1 is implemented. `PrefixChecker` keeps the three
+games (both simulations and bisimulation) and updates only the positions an
+event touches, and transitions from states declared complete are rejected so
+a violation is final. On the stochastic side, `OnlineRates` updates rate
+estimates per event (with Gamma credible intervals), `ObserveSession`
+advances from the previous date per new count, and the JSON protocol has
+sessions. The pseudometrics of point 5 are in `bisim-metric`. Points 2–4 and
+compaction of settled positions (bounded memory) are open.
 
 ## Modern landscape (where this crate sits)
 
@@ -156,7 +177,7 @@ are what to reach for at scale, and the direction new code here follows:
 
 ## Near-term roadmap for this crate
 
-- [x] Provide an incremental prefix checker API (now `legacy`).
+- [x] Incremental prefix checker: `bisim-refine::PrefixChecker` updates the simulation and bisimulation games in place per observed transition or completed state, rejects transitions from complete states (so `Violated` is final), and is differential-tested against replaying the prefix after every event (benchmark: 4,000 events in 1.6 ms incremental vs 2.0 s replay).
 - [x] Add PEPA/grouped-PEPA benchmarking infrastructure (now `legacy`).
 - [x] Replace `HashMap<label, (src, tgt)>` with a weighted multi-LTS (`bisim-core`).
 - [x] Generic partition refinement with distinguishing formulas; simulation preorder (`bisim-refine`).
@@ -172,8 +193,8 @@ are what to reach for at scale, and the direction new code here follows:
 - [x] Fluid ODE mean-field limits for array populations (SOS drift + RK4, no enumeration; `fluid_model`, `bisim-stochastic::integrate`, `fluid()` API + JSON op).
 - [x] PRISM rewards (`rewards` blocks → steady-state expectations) and `system` composition (`||`, `|[...]|`); JANI subset import lowering to the same AST (Storm/Modest interchange; `analyse_jani`, `query_jani`); CSL/PCTL-lite queries (`P[F]`, `P[F<=t]`, `S`, thresholds; `query_prism`, `query` JSON op).
 - [x] Faster backend: worklist refinement with dirty flags, cached signatures and Hopcroft move bound (`refine_fast`, differential-tested; drives `minimise` and the API analyses).
-- [x] Bounded memory: windowed prefix checker with FIFO/reservoir eviction (`legacy::WindowedPrefixChecker`).
-- [x] Async adapters (`ingest_stream` over `futures::Stream`, no executor needed) and `mpsc` channel ingestion (`ingest`, `try_ingest`).
+- [ ] Bounded memory for long runs: compaction of settled positions. (The windowed checker in `legacy` evicts transitions and can retract verdicts; it is not sound.)
+- [x] Verdict streams (`bisimulationrs::streaming`): `VerdictStream` over any `futures_core::Stream` of events (the caller's waker reaches the source; no executor bundled), and `verdict_iter` over iterators and `mpsc` receivers; both emit only changed verdicts.
 - [x] Benchmark suites (`cargo bench -p bisimulationrs`): dense finite LTS (naive vs worklist), structured PEPA models, chains, cycles, stochastic traces, SSA ensembles, enumeration-free fluid, PRISM derive/transient.
 - [ ] Full counting-based Paige–Tarjan `O(m log n)` backend; symbolic (MTBDD) engine.
 - [ ] Full Modest language import; CSL `G`/`U`, nested system composition, renaming synchronisation; fluid for single components.

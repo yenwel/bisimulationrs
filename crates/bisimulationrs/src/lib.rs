@@ -8,6 +8,11 @@
 //!   quasi-`(ε, δ)` checks with distances;
 //! - [`algebra`]: PEPA models (builder, `.pepa` parser, [`pepa!`]) and SOS;
 //! - [`stochastic`]: CTMC steady-state/transient analysis and Gillespie SSA;
+//! - [`metric`]: behavioural distances (optimal-transport bisimulation
+//!   metric, (ε, δ)-bisimulation, distances from samples, dynamical
+//!   similarity);
+//! - [`streaming`]: verdict iterators and `futures_core::Stream`s over
+//!   observations, updated incrementally per event;
 //! - [`legacy`]: the 0.1 API, kept for compatibility.
 //!
 //! ```
@@ -39,9 +44,12 @@ extern crate self as bisimulationrs;
 
 pub use bisim_algebra as algebra;
 pub use bisim_core as core;
+pub use bisim_metric as metric;
 pub use bisim_pepa_macros::pepa;
 pub use bisim_refine as refine;
 pub use bisim_stochastic as stochastic;
+
+pub mod streaming;
 
 #[deprecated(
     since = "0.2.0",

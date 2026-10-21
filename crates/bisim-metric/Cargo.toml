@@ -1,0 +1,19 @@
+[package]
+name = "bisim-metric"
+description = "Behavioural distances for bisimulationrs: optimal-transport bisimulation metrics, (ε,δ)-bisimulation for CTMCs, distances from sample streams, dynamical similarity."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bisim-core.workspace = true
+bisim-stochastic.workspace = true
+
+[dev-dependencies]
+bisim-refine.workspace = true
+
+[lints]
+workspace = true
