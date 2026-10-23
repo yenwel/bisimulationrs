@@ -79,6 +79,31 @@ def test_compare_explains_difference():
     assert same.same_behaviour and same.same_branching
 
 
+TWO_WORKERS = "Waterer = (water, 1).Waterer; Weeder = (weed, 1).Weeder; Waterer || Weeder"
+ONE_FARMER = "Farmer = (water, 1).Farmer + (weed, 1).Farmer; Farmer"
+
+
+def test_causal_compare_finds_different_dependencies():
+    # Same rates and sequences, so the ordinary comparison calls them equal ...
+    assert bs.compare(TWO_WORKERS, ONE_FARMER).same_behaviour
+    # ... but the workers' steps do not depend on each other.
+    result = bs.causal_compare(bs.Model(TWO_WORKERS), ONE_FARMER)
+    assert result.interleaving_bisimilar
+    assert result.causal == "violated" and not result
+    assert "∅" in result.causal_witness
+    assert "same sequences" in result.explanation
+    assert [n["components"] for n in result.nets] == [2, 1]
+
+    reordered = "Waterer = (water, 1).Waterer; Weeder = (weed, 1).Weeder; Weeder || Waterer"
+    assert bs.causal_compare(TWO_WORKERS, reordered)
+
+
+def test_causal_compare_refuses_functional_rates():
+    sir = "S = (infect, 0.3 * #I).I; I = (recover, 0.1).S; S[2] || I"
+    with pytest.raises(bs.ModelError, match="functional rate"):
+        bs.causal_compare(sir, sir)
+
+
 def test_state_space_limit():
     # Independent copies: the state space is not listed, but behaviour over time works.
     big = bs.Model(CYCLE + "P1[200]", max_states=50)

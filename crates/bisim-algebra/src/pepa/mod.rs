@@ -24,6 +24,7 @@
 mod ast;
 mod builder;
 mod derive;
+mod net;
 mod parse;
 mod print;
 mod rate;
@@ -34,6 +35,7 @@ pub use builder::{PepaBuilder, PrefixStart, act, count, passive, passive_weighte
 pub use derive::{
     Act, DeriveOptions, DerivedModel, FluidModel, LeafInfo, LocalGraph, LocalTransition,
 };
+pub use net::MAX_CAUSAL_COMPONENTS;
 pub use parse::{ParseError, parse_pepa};
 pub use rate::{FunExpr, Rate};
 pub use validate::PepaError;

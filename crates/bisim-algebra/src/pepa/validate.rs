@@ -47,6 +47,11 @@ pub enum PepaError {
     StateSpaceTooLarge {
         limit: usize,
     },
+    /// The causal (net) semantics does not cover this model; `reason` says
+    /// why.
+    NoCausalSemantics {
+        reason: String,
+    },
 }
 
 impl fmt::Display for PepaError {
@@ -94,6 +99,9 @@ impl fmt::Display for PepaError {
             ),
             PepaError::StateSpaceTooLarge { limit } => {
                 write!(f, "state space exceeds the limit of {limit} states")
+            }
+            PepaError::NoCausalSemantics { reason } => {
+                write!(f, "no causal semantics for this model: {reason}")
             }
         }
     }

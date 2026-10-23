@@ -112,7 +112,9 @@ impl<S: Eq + Hash + Clone> SideStore<S> {
             }
         }
         let mut reaches_open: Vec<bool> = self.complete.iter().map(|&c| !c).collect();
-        let mut stack: Vec<u32> = (0..n as u32).filter(|&s| reaches_open[s as usize]).collect();
+        let mut stack: Vec<u32> = (0..n as u32)
+            .filter(|&s| reaches_open[s as usize])
+            .collect();
         while let Some(t) = stack.pop() {
             for &s in &pred[t as usize] {
                 if !reaches_open[s as usize] {
@@ -776,9 +778,7 @@ impl LiveGame {
         let held: Vec<bool> = self
             .positions
             .iter()
-            .map(|pos| {
-                pos.refuted_by.is_none() && closed(0, pos.pair.0) && closed(1, pos.pair.1)
-            })
+            .map(|pos| pos.refuted_by.is_none() && closed(0, pos.pair.0) && closed(1, pos.pair.1))
             .collect();
 
         // Unsettled positions; the rest are rebuilt below.
@@ -821,7 +821,9 @@ impl LiveGame {
         for (p, mut pos) in old.into_iter().enumerate() {
             if held[p] {
                 if minimise {
-                    let key = self.class_key(store, pos.pair).expect("held pairs are closed");
+                    let key = self
+                        .class_key(store, pos.pair)
+                        .expect("held pairs are closed");
                     self.held_classes.insert(key);
                 } else {
                     self.held_pairs.insert(pos.pair);

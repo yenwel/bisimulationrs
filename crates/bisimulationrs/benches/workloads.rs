@@ -252,7 +252,9 @@ fn harvest_events(k: u32) -> Vec<Reveal> {
 enum Solve {
     Incremental,
     /// Incremental, compacting whenever the live positions have doubled.
-    Compact { minimise: bool },
+    Compact {
+        minimise: bool,
+    },
     Replay,
 }
 

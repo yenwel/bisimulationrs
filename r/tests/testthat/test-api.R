@@ -108,3 +108,24 @@ test_that("forecast and plot", {
   expect_error(pepa_check_observations(plan, data.frame(date = "05/06/2026", state = "Blooming", count = 1),
                                        start = "15/05/2026"), "no state `Blooming`")
 })
+
+test_that("causal comparison: two workers and one farmer differ only in dependencies", {
+  workers <- "Waterer = (water, 1).Waterer; Weeder = (weed, 1).Weeder; Waterer || Weeder"
+  farmer <- "Farmer = (water, 1).Farmer + (weed, 1).Farmer; Farmer"
+  cmp <- pepa_compare(workers, farmer)
+  expect_true(cmp$holds[cmp$check == "same_behaviour"])
+  c <- pepa_causal_compare(pepa_model(workers), farmer)
+  expect_s3_class(c, "pepa_causal_comparison")
+  expect_true(c$interleaving_bisimilar)
+  expect_equal(c$causal, "violated")
+  expect_match(c$causal_witness, "∅", fixed = TRUE)
+  expect_match(c$explanation, "same sequences")
+  expect_equal(c$nets$components, c(2, 1))
+  expect_output(print(c), "same dependencies \\(violated\\)")
+  reordered <- "Waterer = (water, 1).Waterer; Weeder = (weed, 1).Weeder; Weeder || Waterer"
+  same <- pepa_causal_compare(workers, reordered)
+  expect_equal(same$causal, "holds")
+  expect_true(is.na(same$causal_witness))
+  sir <- "S = (infect, 0.3 * #I).I; I = (recover, 0.1).S; S[2] || I"
+  expect_error(pepa_causal_compare(sir, sir), "functional rate", class = "pepa_error")
+})

@@ -45,6 +45,7 @@ __all__ = [
     "Diagnostic",
     "Check",
     "Comparison",
+    "CausalComparison",
     "ObservationReport",
     "FitResult",
     "Distance",
@@ -54,6 +55,7 @@ __all__ = [
     "Session",
     "check",
     "compare",
+    "causal_compare",
     "distance",
     "epsdelta",
     "stream_distance",
@@ -730,6 +732,55 @@ def compare(a: Union[Model, str], b: Union[Model, str], *, max_states: int = 200
             for name, key in _CHECKS
         ),
         note=r.get("note"),
+    )
+
+
+@dataclass(frozen=True)
+class CausalComparison:
+    """Whether two models have the same dependencies between their steps (see :func:`causal_compare`).
+
+    ``causal`` is ``"holds"``, ``"violated"`` or ``"unknown"`` (search budget
+    exhausted). When violated, ``causal_witness`` is a formula true of A and
+    false of B: read ``⟨a ← 1,2⟩φ`` as "can do an ``a`` that depends on the
+    1st and 2nd step so far, then φ" and ``⟨a ← ∅⟩φ`` as "can do an ``a``
+    that depends on none of the earlier steps, then φ". ``nets`` gives the
+    size of each model's causal net (places, transitions, components).
+    """
+
+    interleaving_bisimilar: bool
+    interleaving_witness: Optional[str]
+    causal: str
+    causal_witness: Optional[str]
+    nets: tuple[dict, dict]
+    explanation: str
+
+    def __bool__(self) -> bool:
+        return self.causal == "holds"
+
+    def __repr__(self) -> str:
+        return f"<CausalComparison {self.causal}" + (f": {self.causal_witness} holds in A" if self.causal_witness else "") + ">"
+
+
+def causal_compare(a: Union[Model, str], b: Union[Model, str], *, max_states: int = 200_000) -> CausalComparison:
+    """Compares models ``a`` and ``b`` up to causality: not only the same steps, but the same dependencies between them.
+
+    Two workers watering and weeding independently allow the same sequences
+    of actions as one farmer doing both, even at the same rates, but not the
+    same dependencies. Rates are ignored. Models with functional rates have
+    no causal semantics and raise :class:`ModelError`.
+    """
+    response = _call({"op": "causal", "a": _source(a), "b": _source(b), "max_states": max_states})
+    if "error" in response:
+        err = response["error"]
+        raise ModelError(_diagnostics(err["a"]) + _diagnostics(err["b"]), label="comparison")
+    r = response["ok"]
+    return CausalComparison(
+        interleaving_bisimilar=r["interleaving_bisimilar"],
+        interleaving_witness=r["interleaving_witness"],
+        causal=r["causal"],
+        causal_witness=r["causal_witness"],
+        nets=(r["nets"][0], r["nets"][1]),
+        explanation=r["explanation"],
     )
 
 

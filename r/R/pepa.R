@@ -261,3 +261,54 @@ print.pepa_comparison <- function(x, ...) {
   if (!is.null(attr(x, "note"))) cat("Note:", attr(x, "note"), "\n")
   invisible(x)
 }
+
+#' Compare two models up to causality
+#'
+#' Do the models have not only the same steps but the same dependencies
+#' between them? Two workers watering and weeding independently allow the
+#' same sequences of actions as one farmer doing both, even at the same
+#' rates, but not the same dependencies. The check compares the models'
+#' causal nets (history-preserving bisimulation); rates are ignored. Models
+#' with functional rates have no causal semantics and are refused with an error.
+#'
+#' When the dependencies differ, `causal_witness` is a formula true of A and
+#' false of B: read `⟨a ← 1,2⟩φ` as "can do an a that depends on the 1st and
+#' 2nd step so far, then φ" and `⟨a ← ∅⟩φ` as "can do an a that depends on
+#' none of the earlier steps, then φ".
+#'
+#' @inheritParams pepa_compare
+#' @return A list of class `pepa_causal_comparison` with `interleaving_bisimilar`
+#'   (same sequences of actions), `interleaving_witness`, `causal` (`"holds"`,
+#'   `"violated"` or `"unknown"` when the search budget ran out),
+#'   `causal_witness`, `nets` (a data frame with the `places`, `transitions` and
+#'   `components` of each model's causal net) and `explanation`. Missing
+#'   witnesses are `NA`.
+#' @examples
+#' workers <- "Waterer = (water, 1).Waterer; Weeder = (weed, 1).Weeder; Waterer || Weeder"
+#' farmer <- "Farmer = (water, 1).Farmer + (weed, 1).Farmer; Farmer"
+#' pepa_causal_compare(workers, farmer)
+#' @export
+pepa_causal_compare <- function(a, b, max_states = 200000) {
+  src <- function(m) if (inherits(m, "pepa_model")) m$source else m
+  r <- pepa_call(list(op = "causal", a = src(a), b = src(b), max_states = max_states))
+  if (!is.null(r$error)) {
+    pepa_abort(rbind(diagnostics_frame(r$error$a), diagnostics_frame(r$error$b)), "comparison")
+  }
+  na <- function(x) if (is.null(x)) NA_character_ else x
+  nets <- as.data.frame(r$ok$nets)
+  nets <- cbind(model = c("A", "B"), nets[, c("places", "transitions", "components")])
+  structure(list(interleaving_bisimilar = r$ok$interleaving_bisimilar,
+                 interleaving_witness = na(r$ok$interleaving_witness),
+                 causal = r$ok$causal, causal_witness = na(r$ok$causal_witness),
+                 nets = nets, explanation = r$ok$explanation),
+            class = "pepa_causal_comparison")
+}
+
+#' @export
+print.pepa_causal_comparison <- function(x, ...) {
+  mark <- c(holds = "✓", violated = "✗", unknown = "?")[[x$causal]]
+  extra <- if (is.na(x$causal_witness)) "" else sprintf(": %s holds in A", x$causal_witness)
+  cat(sprintf("%s same dependencies (%s)%s\n", mark, x$causal, extra))
+  cat(x$explanation, "\n")
+  invisible(x)
+}

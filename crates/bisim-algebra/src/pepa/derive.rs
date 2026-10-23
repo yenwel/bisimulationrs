@@ -119,7 +119,7 @@ impl<A: Action> DerivedModel<A> {
 /// syntactic `Seq` subterm; constants are resolved to their definition, so
 /// `(a, r).P` and `P`'s own body lead to the same derivative.
 #[derive(Debug, Clone)]
-struct Local<A> {
+pub(super) struct Local<A> {
     nodes: Vec<Node<A>>,
     roots: Vec<u32>,
     /// Constants defined as another constant (`P = Q;`): their name and the
@@ -135,7 +135,7 @@ enum Node<A> {
 }
 
 impl<A: Action> Local<A> {
-    fn compile(model: &PepaModel<A>) -> Result<(Self, Vec<String>), PepaError> {
+    pub(super) fn compile(model: &PepaModel<A>) -> Result<(Self, Vec<String>), PepaError> {
         let mut local = Local {
             nodes: Vec::new(),
             roots: vec![u32::MAX; model.seqs.len()],
@@ -200,12 +200,12 @@ impl<A: Action> Local<A> {
         n
     }
 
-    fn root(&self, id: SeqId) -> u32 {
+    pub(super) fn root(&self, id: SeqId) -> u32 {
         self.canon(self.roots[id.0 as usize])
     }
 
     /// One-step local transitions `(action, rate, canonical target)`.
-    fn transitions(&self, n: u32, out: &mut Vec<(A, Rate, u32)>) {
+    pub(super) fn transitions(&self, n: u32, out: &mut Vec<(A, Rate, u32)>) {
         match &self.nodes[n as usize] {
             Node::Prefix(a, r, next) => out.push((a.clone(), r.clone(), self.canon(*next))),
             Node::Choice(xs) => xs.iter().for_each(|x| self.transitions(*x, out)),
@@ -214,7 +214,7 @@ impl<A: Action> Local<A> {
     }
 
     /// All canonical derivatives reachable from `start`.
-    fn reachable(&self, start: u32) -> Vec<u32> {
+    pub(super) fn reachable(&self, start: u32) -> Vec<u32> {
         let mut seen = vec![start];
         let mut i = 0;
         let mut buf = Vec::new();

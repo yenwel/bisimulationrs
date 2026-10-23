@@ -26,6 +26,7 @@ const MAX_FLUID_STEPS: f64 = 5e6;
 const MAX_STEP_BOUND: f64 = 1e8;
 
 mod attribution;
+mod causal;
 mod engine;
 mod metric;
 mod observe;
@@ -44,6 +45,7 @@ mod session;
 pub use attribution::{
     Attribution, Contribution, Intervention, MAX_ATTRIBUTION_PARAMS, WhatIf, attribute, what_if,
 };
+pub use causal::{CausalComparison, NetSummary, causal_compare};
 pub use json::{PROTOCOL_VERSION, handle_json};
 pub use metric::{
     Atom, DistanceReport, DsaReport, EpsDeltaReport, PairView, StreamReport, distance, dsa,

@@ -1,71 +1,34 @@
 # bisimulationrs
 
-## References
+Compare a running system with its plan, while it runs.
 
-Links checked on 03/10/2026. Where the original link is dead or wrong, the working source is given.
+Classical monitoring judges a crop, a herd or a company by its final yield. When the
+harvest is continuous, as in permaculture, there is no final yield to wait for. This
+library compares *behaviour*:
+- what the system can do next, step by step, coinductively, so cyclic and never-ending
+  behaviour needs no end;
+- with rates (continuous-time Markov chains, PEPA);
+- with numbers for *how far apart* two systems are;
+- with verdicts that update as observations arrive.
 
-- Aceto, Ingólfsdóttir, Srba, *The Algorithmics of Bisimilarity* (2011): https://staff.ru.is/luca/PAPERS/algobisimchapter.pdf (moved from `www.ru.is/faculty/luca/...`)
-- https://doc.rust-lang.org/std/sync/mpsc/fn.channel.html
-- Kułakowski, *Concurrent bisimulation algorithm*: https://arxiv.org/abs/1311.7635
-- Crafa & Ranzato, *Probabilistic bisimulation and simulation algorithms by abstract interpretation* (ICALP 2011): http://www.math.unipd.it/~crafa/Pubblicazioni/CrafaRanzatoICALP11.pdf
-- Dorsch, Milius, Schröder, Wißmann, *Efficient Coalgebraic Partition Refinement* (CONCUR 2017): https://arxiv.org/pdf/1705.08362.pdf
-- https://docs.rs/carboxyl/0.2.1/carboxyl/ (no longer a dependency: unmaintained)
-- Lee & Varaiya, EECS20N bisimulation notes: https://ptolemy.eecs.berkeley.edu/eecs20/week4/bisimulation.html
-- Staton, *Relating coalgebraic notions of bisimulation* (LMCS 2011): https://arxiv.org/pdf/1101.4223.pdf
-- Sangiorgi, *On the origins of bisimulation and coinduction* (TOPLAS 2009): http://www.cs.unibo.it/~sangio/DOC_public/history_bis_coind.pdf
-- Bruni, Montanari, Sammartino, *Revisiting causality, coalgebraically* (Acta Informatica 52, 2015): https://arxiv.org/abs/1507.06462 (the original ACTA14 PDF link is dead)
-- Sobociński, *Relational presheaves as labelled transition systems* (CMCS 2012): http://coalg.org/cmcs12/papers/00010040.pdf
-- ~~https://arxiv.org/abs/1506.01170~~: this ID is an unrelated multi-agent game-theory paper; the intended reference is unknown
-- Cattani & Winskel, *Profunctors, open maps and bisimulation* (BRICS RS-04-22): https://www.brics.dk/RS/04/22/ (replaces a dead CiteSeerX link)
-- Sobociński, *Relational presheaves, change of base and weak simulation* (JCSS 81(5), 2015), doi:10.1016/j.jcss.2014.12.007 (the Southampton link is dead)
-- Corfield, *Coalgebraically thinking* (n-Category Café, 2008): https://golem.ph.utexas.edu/category/2008/11/coalgebraically_thinking.html
-- Julius, Girard, Pappas, *Approximate bisimulation for a class of stochastic hybrid systems* (ACC 2006) (the georgejpappas.org link is dead; available via the Wayback Machine)
-- Miculan & Peressotti, *Weak bisimulations for labelled transition systems weighted over semirings*: https://arxiv.org/pdf/1310.4106.pdf
-- Ciocchetta & Hillston, *Bio-PEPA* (TCS 2009): http://homepages.inf.ed.ac.uk/jeh/Bio-PEPA/TCS_CH.pdf
-- Latella, Massink, de Vink, *Bisimulation of labelled state-to-function transition systems coalgebraically* (LMCS 2015): https://lmcs.episciences.org/1617/pdf
-- Latella, Massink, de Vink, *A definition scheme for quantitative bisimulation* (QAPL 2015): https://arxiv.org/pdf/1509.08563.pdf
-- Davoren, *Topologies, continuity and bisimulations* (RAIRO ITA 1999): http://www.numdam.org/article/ITA_1999__33_4-5_357_0.pdf
-- http://www.prismmodelchecker.org/manual/ThePRISMLanguage/ProcessAlgebraOperators
-- http://www.dcs.ed.ac.uk/pepa/
-- Hillston, *Fluid flow approximation of PEPA models* (QEST 2005): http://www.dcs.ed.ac.uk/pepa/fluidflow.pdf
-- Hillston, QEST 2005 talk: http://homepages.inf.ed.ac.uk/jeh/TALKS/Qest05.pdf
-- Hayden & Bradley, *Fluid-flow solutions in PEPA to the state space explosion problem* (PASTA 2007): https://spiral.imperial.ac.uk/handle/10044/1/5839 (the Semantic Scholar link is empty)
+Plans and roadmap: [ROADMAP.md](ROADMAP.md). Design review and known limits:
+[REVIEW.md](REVIEW.md). Machine-checked theorems: [lean/](lean/README.md).
 
-## Goal
+## What it answers
 
-Inputs: `stream_a`, `stream_b`.
-
-Outputs:
-
-- `stream<bool>`: `right_simulates_left`
-- `stream<bool>`: `are_bisimulate`
-- `stream<bool>`: `are_bisimilar`
-
-The long-term objective is to compare non-deterministic, potentially infinite or cyclic systems with **continuous, prefix-based feedback**.
-
-## Workspace
-
-| crate | contents |
-|---|---|
-| `bisim-core` | weighted LTS `Wlts<L, W>` (coalgebra `X → FS(X, W)^L`), semirings (`bool`, `u64`, `Real`), partitions, HML formulas, verdicts |
-| `bisim-refine` | signature-based partition refinement with every round kept (`∼ₙ`), distinguishing formulas, simulation preorder, on-the-fly game with budgets, worklist fast backend, `(ε, δ)` quasi-bisimulation, `compare` / `bisimilar` / `minimise` |
-| `bisim-algebra` | PEPA: AST, typed builder, `.pepa` parser and printer, validator, SOS derivation (cooperation with apparent rates, passive rates, functional `#Count` rates, hiding, arrays in counting form), fluid drift; PRISM `dtmc`/`ctmc` subset import (consts, formulas, synchronising modules, rewards, `system` blocks, queries); JANI subset import (Storm/Modest interchange) |
-| `bisim-pepa-macros` | `pepa!`: PEPA models checked at compile time (functional rates included) |
-| `bisim-stochastic` | CTMC from a rate-labelled system: steady state, transient analysis by uniformisation, Gillespie SSA trajectories and ensembles, event logs + MLE rate learning, fluid RK4 integration, DTMC/CTMC reachability solvers |
-| `bisim-metric` | behavioural distances: the optimal-transport bisimulation metric (exact policy iteration with a certified error bound, and Sinkhorn Value Iteration; Calo et al., NeurIPS 2024), (ε, δ)-bisimulation for CTMCs with its reachability bounds (Spork et al., CAV 2025), the distance estimated from sample streams (Calo et al., NeurIPS 2025), dynamical similarity analysis of sensor series (Ostrow et al., NeurIPS 2023) |
-| `bisim-api` | plain, serialisable API (check, analyse, analyse_prism, analyse_jani, query, fluid, over time, compare, observations, forecast, fit, distance, epsdelta, stream_distance, dsa) and one JSON entry point shared by all bindings, with stateful sessions (`session_open` / `session_push` / `session_close`) for prefix comparison, observation tracking and stream distances |
-| `bisim-wasm` | the API compiled to WebAssembly for the web editor |
-| `bisimulationrs` | facade re-exporting everything; `streaming` turns iterators and `futures_core::Stream`s of observations into streams of changed verdicts; `legacy` keeps the 0.1 API (deprecated) |
-
-Bindings and tools built on `bisim-api`, so they all give the same answers:
-
-| path | what | build |
+| question | how | where |
 |---|---|---|
-| `web/` | **PEPA Studio**: editor with live checking, state-space and component graphs, lumping, occupancy over time, model comparison | `sh web/build.sh`, then `python3 -m http.server -d web/dist` |
-| `python/` | Python package `bisimulationrs` (pandas DataFrames) | `cd python && maturin develop --release && pytest` |
-| `r/` | R package `bisimulationrs` (data frames, base plots) | `R CMD INSTALL r`, tests with `devtools::test("r")` |
+| Do two systems behave the same? | bisimulation (exact, Markovian), simulation, with a Hennessy–Milner formula as witness when they differ | `bisim-refine` |
+| Is the running system still on plan? | incremental comparison of growing prefixes: "holds so far" until a difference is final | `PrefixChecker`, `streaming`, JSON sessions |
+| Is reality following the plan's numbers? | dated counts against the model's exact ranges, on-track verdict, rate fitting | `check_observations`, `ObserveSession` |
+| How far apart are two models? | optimal-transport bisimulation distance, with the state pairs that drive it | `bisim-metric` |
+| Within tolerance, and what does that guarantee? | (ε, δ)-bisimulation with reachability bounds | `bisim-metric` |
+| How far apart are two *logs*? | distance estimated from observed transitions only | `bisim-metric` |
+| Do two sensor series evolve alike? | dynamical similarity analysis (not a bisimulation) | `bisim-metric` |
+| Same steps, but the same *dependencies* between them? | history-preserving bisimulation on the causal (Petri net) semantics of PEPA, with a witness naming the causes | `hp_bisimilar`, `causal_net`, op `causal` |
+| What if we change a rate? Which change explains the gap? | model-based what-if and Shapley attribution | `what_if`, `attribute` |
 
-Times are in seconds and rates in s⁻¹.
+## Quick start
 
 ```rust
 use bisimulationrs::{pepa, refine::{bisimilar, minimise}, stochastic::Ctmc};
@@ -85,127 +48,176 @@ let ctmc = Ctmc::from_wlts(&lumped);
 let p = ctmc.transient(&ctmc.initial_distribution(), 30.0, 1e-9);
 ```
 
-**Is reality following the plan?** Give dated counts (e.g. how many tomato plants were flowering on 19/06/2026) and get, per count, the expected value and a 95 % range from the model, plus an overall on-track verdict and fitted rates. See [`examples/garden/`](examples/garden/README.md).
+Rates are per time unit of the model. Dated observations take a unit (day, week, …).
 
-`bisimilar` and `compare` return a `Verdict`; a violation carries a Hennessy–Milner formula that holds in one system and not in the other, e.g. `⟨disease⟩⟨healing⟩tt` or `⟨start⟩=2 tt` for a rate difference.
+The same engine, with the same answers, is available here:
 
-**How far apart, not just whether.** `bisim-metric` answers with numbers:
+| path | what | build |
+|---|---|---|
+| `web/` | **PEPA Studio**: editor with live checking, state space, lumping, behaviour over time, observations, comparison and distances, a replay of streaming comparison, tutorial | `sh web/build.sh`, then `python3 -m http.server -d web/dist` |
+| `python/` | Python package (pandas DataFrames) | `cd python && maturin develop --release && pytest` |
+| `r/` | R package (data frames, base plots) | `R CMD INSTALL r`, tests with `devtools::test("r")` |
+| `lean/` | Lean 4 proofs of the theory the engine relies on | `cd lean && lake exe cache get && lake build` |
+
+Runnable examples are listed in [examples/README.md](examples/README.md):
+- comparison, minimisation and steady state;
+- streaming prefixes;
+- garden observations;
+- biology, ecology and economics models;
+- permaculture;
+- distances, tolerance, inspection logs and sensor series.
+
+## Workspace
+
+| crate | contents |
+|---|---|
+| `bisim-core` | weighted LTS `Wlts<L, W>` (coalgebra `X → FS(X, W)^L`), semirings (`bool`, `u64`, `Real`), safe Petri nets, partitions, HML formulas, verdicts |
+| `bisim-refine` | partition refinement with every round kept (`∼ₙ`) and a worklist backend; distinguishing formulas; simulation preorder; on-the-fly game with budgets; incremental prefix games (`PrefixChecker`) with compaction of settled positions; history-preserving bisimulation on safe nets (`hp_bisimilar`) |
+| `bisim-algebra` | PEPA (builder, parser, `pepa!`, validator, SOS with apparent-rate cooperation, passive and functional rates, arrays, fluid drift, causal net semantics); PRISM `dtmc`/`ctmc` and JANI subset import |
+| `bisim-pepa-macros` | `pepa!`: PEPA models checked at compile time |
+| `bisim-stochastic` | CTMC transient (uniformisation) and steady state, reachability (interval iteration), Gillespie SSA (resumable), online rate learning with credible intervals, fluid RK4 |
+| `bisim-metric` | behavioural distances: optimal-transport bisimulation metric (exact and Sinkhorn), (ε, δ)-bisimulation, distance from samples, DSA |
+| `bisim-api` | plain serialisable API and one JSON entry point for every binding, including stateful sessions |
+| `bisim-wasm` | the API as WebAssembly, for PEPA Studio |
+| `bisimulationrs` | facade; `streaming` (verdict iterators and `futures_core::Stream`s); `legacy` 0.1 API (deprecated) |
+
+## Comparing while it runs
+
+`PrefixChecker` keeps the simulation and bisimulation games and updates only what a new
+event touches:
+- A transition from a state declared complete is rejected, so a violation is final.
+- After every event, the answer equals solving the game from scratch: property-tested on
+  700 random cases against `replay_verdict`.
+- 4,000 events take 1.6 ms, against 2.0 s for replaying.
+- Settled positions can be compacted. Peak memory dropped about 43% on a harvest
+  workload, and not at all on a ring workload until the stream ends.
+
+Other ways to stream:
+- **Rust:** `bisimulationrs::streaming` gives the same comparison as an iterator or a
+  `futures_core::Stream` of changed verdicts.
+- **JSON:** sessions (`session_open` / `session_push` / `session_close`) give it to the
+  browser, Python and R.
+- **Stochastic side:** online too. `OnlineRates`, `gillespie_continue`, `ObserveSession`
+  (each count advances from the previous date) and warm-started fits.
+
+## How far apart, not just whether
 
 | question | method | guarantee | caveat |
 |---|---|---|---|
 | how differently do two models behave, seen through a count? | bisimulation distance (`bisim_distance`, op `distance`) | exact up to a reported error bound; 0 exactly for bisimilar states | needs both models; explores reachable state pairs |
-| is the system within tolerance of the plan? | (ε, δ)-bisimulation (`min_epsilon`, op `epsdelta`) | bounds time-bounded reachability (Prop. 3) | the bound is loose and grows with the horizon |
+| is the system within tolerance of the plan? | (ε, δ)-bisimulation (`min_epsilon`, op `epsdelta`) | bounds time-bounded reachability (Prop. 3 of the paper) | the bound is loose and grows with the horizon |
 | how far apart are two *logged* systems? | distance from samples (`SampleDistance`, op `stream_distance`, sessions) | converges as 1/√transitions | needs very many transitions (≈10⁶ for ±0.07 on 4 states) |
 | do two sensor series evolve alike? | DSA (`dsa`, op `dsa`) | invariant to rotations of the sensor coordinates | compares fitted linear dynamics; not a bisimulation |
 
-Examples: `behaviour_distance`, `tolerance_plan`, `inspection_logs`, `sensor_similarity`.
+## What is verified, and how
 
-## Streaming-first architecture (recommended)
+Not everything yet. What exists today:
+- **Lean 4 proofs** (`lean/`, no `sorry`, standard axioms only):
+  - weighted bisimulation is a congruence for parallel composition;
+  - PEPA's apparent-rate cooperation preserves strong equivalence;
+  - the finite grouped game for causal comparison decides history-preserving bisimulation
+    (the same winner as the definition);
+  - a lumping survives any context;
+  - a rate intervention can break a lumping.
+- **Witnesses:** every "differs" answer carries a formula you can check by hand.
+- **Differential and property tests against independent oracles:**
+  - fast vs naive refinement;
+  - game vs refinement;
+  - incremental vs replay;
+  - distance 0 vs lumping;
+  - (ε, δ) at zero tolerance vs strong bisimulation;
+  - history-preserving bisimulation vs its definition with full histories.
+- **Closed forms:** stochastic results are checked against them.
+- **Fuzzing:** the parsers are mutation-fuzzed.
 
-The listed references converge on a practical architecture:
+The Rust code itself is not proved correct. [ROADMAP.md](ROADMAP.md) sets out how to get
+there:
+1. certificates for every verdict;
+2. a checker verified in Lean;
+3. the core algorithms proved, with the Rust linked to the proofs via Aeneas;
+4. verified numerics.
 
-1. **On-the-fly checking instead of batch minimization**
-   - Keep an incremental relation/witness graph.
-   - Update only affected pairs when a new transition arrives.
-   - Emit a new verdict for every prefix.
+## Where this crate sits
 
-2. **Partition refinement as a backend optimization**
-   - For finite snapshots/windows, run a fast partition-refinement pass (Paige–Tarjan style ideas).
-   - Use this as a periodic compaction step, not as the main online loop.
+Exact bisimulation is classic (Park, Milner; Paige–Tarjan `O(m log n)`) and remains
+infrastructure. For scale, reach for the dedicated tools:
+- PRISM and Storm (probabilistic model checking, symbolic engines);
+- Modest (import via JANI);
+- generic coalgebraic partition refinement (CoPaR).
 
-3. **Coinduction up-to for faster convergence**
-   - Implement configurable “up-to” techniques (up-to context/closure/congruence).
-   - This keeps proofs/checks small in practice and reduces memory pressure.
+This crate's niche is the combination: comparison of running systems with plans,
+quantitative answers, explanations, and the bindings to use them on farm and population
+data.
 
-4. **Symbolic representation for state explosion**
-   - Add optional symbolic backends (bitsets/decision diagrams/sparse signatures).
-   - Keep the public API generic so engines can switch without API changes.
+## References
 
-5. **Quantitative and stochastic extension path**
-   - Add pseudometrics and confidence-aware verdict streams (`HoldsSoFar`, `Violated`, `Unknown(p)`), especially for data-derived models.
+Grouped by topic. Entries marked † were added or re-checked by search between 19/10 and 23/10/2026; the
+rest were checked on 03/10/2026. Where an original link was dead, the working source is
+given.
 
-Status (21/10/2026): point 1 is implemented. `PrefixChecker` keeps the three
-games (both simulations and bisimulation) and updates only the positions an
-event touches, and transitions from states declared complete are rejected so
-a violation is final. On the stochastic side, `OnlineRates` updates rate
-estimates per event (with Gamma credible intervals), `ObserveSession`
-advances from the previous date per new count, and the JSON protocol has
-sessions. The pseudometrics of point 5 are in `bisim-metric`. Points 2–4 and
-compaction of settled positions (bounded memory) are open.
+### Bisimulation, coinduction, coalgebra
 
-## Modern landscape (where this crate sits)
+- Sangiorgi, *On the origins of bisimulation and coinduction* (TOPLAS 2009): http://www.cs.unibo.it/~sangio/DOC_public/history_bis_coind.pdf
+- Sangiorgi, *Introduction to Bisimulation and Coinduction* (Cambridge University Press, 2012)
+- Aceto, Ingólfsdóttir, Srba, *The Algorithmics of Bisimilarity* (2011): https://staff.ru.is/luca/PAPERS/algobisimchapter.pdf
+- Staton, *Relating coalgebraic notions of bisimulation* (LMCS 2011): https://arxiv.org/abs/1101.4223
+- Cattani & Winskel, *Profunctors, open maps and bisimulation* (BRICS RS-04-22): https://www.brics.dk/RS/04/22/
+- Sobociński, *Relational presheaves as labelled transition systems* (CMCS 2012): http://coalg.org/cmcs12/papers/00010040.pdf; *Relational presheaves, change of base and weak simulation* (JCSS 81(5), 2015), doi:10.1016/j.jcss.2014.12.007
+- Miculan & Peressotti, *Weak bisimulations for labelled transition systems weighted over semirings*: https://arxiv.org/abs/1310.4106
+- Latella, Massink, de Vink, *Bisimulation of labelled state-to-function transition systems coalgebraically* (LMCS 2015): https://lmcs.episciences.org/1617/pdf; *A definition scheme for quantitative bisimulation* (QAPL 2015): https://arxiv.org/abs/1509.08563
+- Davoren, *Topologies, continuity and bisimulations* (RAIRO ITA 1999): http://www.numdam.org/article/ITA_1999__33_4-5_357_0.pdf
+- Corfield, *Coalgebraically thinking* (n-Category Café, 2008): https://golem.ph.utexas.edu/category/2008/11/coalgebraically_thinking.html
+- Lee & Varaiya, EECS20N bisimulation notes: https://ptolemy.eecs.berkeley.edu/eecs20/week4/bisimulation.html
 
-Exact bisimulation is classic (Park/Milner, Paige–Tarjan `O(m log n)`)
-and still infrastructure, not a fad — but the scalable front-ends live
-elsewhere. This crate implements the textbook baseline; the tools below
-are what to reach for at scale, and the direction new code here follows:
+### Algorithms
 
-- **Probabilistic model checkers**: PRISM (Kwiatkowska et al.,
-  `prismmodelchecker.org`) and Storm (`stormchecker.org`, Dehnert et
-  al., CAV 2017) — guarded-command modelling, CSL/PCTL checking,
-  symbolic (MTBDD) and sparse engines, bisimulation minimisation as a
-  preprocessing pass, plus a Monte-Carlo simulator engine.
-- **Modest** (Hahn et al., `modestchecker.net`) — process algebra with
-  data, `modes` statistical model checker for large stochastic systems.
-  Import Modest models via its JANI export (`analyse_jani`,
-  `PrismModel.from_jani`); the native language remains future work.
-- **Bio-PEPA** (Ciocchetta & Hillston, TCS 2009,
-  `homepages.inf.ed.ac.uk/jeh/Bio-PEPA/`) — species with stoichiometry
-  and *functional rates* (e.g. mass action `beta*S*I`), fluid ODE
-  approximation and SSA simulation for large populations. Functional
-  rates (`beta * #I`) are supported here too; compartments,
-  stoichiometry and fluid limits are not (yet).
-- **Coalgebraic partition refinement**: efficient generic algorithms in
-  `O((m+n) log n)` (Dorsch, Milius, Schröder, Wißmann, CONCUR 2017;
-  Wißmann & Jacobs, 2022) and the CoPaR tool — the faster backend our
-  naive Kleene iteration (`bisim-refine::refine`) is tested against but
-  does not yet match.
-- **Approximate bisimulation** (the answer to noisy rates): a spectrum
-  of approximate probabilistic bisimulations (Spork, Baier, Katoen,
-  Piribauer, Quatmann, CONCUR 2024, arXiv:2407.07584) and
-  `(ε, δ)`-bisimulation for CTMCs with bounds on time-bounded reachability
-  (Spork, Baier, Katoen, Klüppelholz, Piribauer, CAV 2025,
-  arXiv:2505.15587). See `bisim_refine::{approx_bisimilar_states,
-  approx_distance, lumping_error}` (`Verdict::Approx`), which implements a
-  quasi-lumpability check in that spirit — with `ε` on class-sum rates, not
-  on transition probabilities as in the paper, and without its reachability
-  bounds — and `examples/sir/` for the PEPA ↔ Bio-PEPA ↔ PRISM
-  correspondence.
-- **Scale-out techniques**: statistical model checking, fluid/mean-field
-  limits, moment closures and on-the-fly game algorithms (see the
-  streaming-first architecture above).
+- Dorsch, Milius, Schröder, Wißmann, *Efficient Coalgebraic Partition Refinement* (CONCUR 2017): https://arxiv.org/abs/1705.08362; journal version Wißmann, Dorsch, Milius, Schröder (LMCS 16(1), 2020)
+- † Jacobs & Wißmann, *Coalgebraic Partition Refinement For All Functors* (arXiv:2204.12368, 2022): https://arxiv.org/abs/2204.12368
+- Crafa & Ranzato, *Probabilistic bisimulation and simulation algorithms by abstract interpretation* (ICALP 2011): http://www.math.unipd.it/~crafa/Pubblicazioni/CrafaRanzatoICALP11.pdf
+- Kułakowski, *Concurrent bisimulation algorithm*: https://arxiv.org/abs/1311.7635
+- † Saha, *An incremental bisimulation algorithm* (FSTTCS 2007), as described by the BisPy documentation: https://bispy-bisimulation-in-python.readthedocs.io/en/latest/algorithms/saha.html
 
-## Near-term roadmap for this crate
+### Stochastic process algebra and population models
 
-- [x] Incremental prefix checker: `bisim-refine::PrefixChecker` updates the simulation and bisimulation games in place per observed transition or completed state, rejects transitions from complete states (so `Violated` is final), and is differential-tested against replaying the prefix after every event (benchmark: 4,000 events in 1.6 ms incremental vs 2.0 s replay).
-- [x] Add PEPA/grouped-PEPA benchmarking infrastructure (now `legacy`).
-- [x] Replace `HashMap<label, (src, tgt)>` with a weighted multi-LTS (`bisim-core`).
-- [x] Generic partition refinement with distinguishing formulas; simulation preorder (`bisim-refine`).
-- [x] PEPA definition layer (builder, parser, `pepa!`, validator) and SOS with cooperation semantics (`bisim-algebra`).
-- [x] CTMC steady-state and transient analysis (`bisim-stochastic`).
-- [x] Web editor and visualiser (WebAssembly), Python and R bindings.
-- [x] Observations: dated counts (dd/mm/yyyy) checked against a plan with exact ranges and an adjusted on-track verdict; rate fitting; see `examples/garden/`.
-- [x] Quasi-Markovian `(ε, δ)` check with behavioural distance (`Verdict::Approx`) and `lumping_error` for quasi-lumpability (`bisim-refine::approx`).
-- [x] Stochastic race semantics: Gillespie SSA trajectories + Monte-Carlo ensembles (`bisim-stochastic::simulate`); SIR correspondence example PEPA ↔ Bio-PEPA ↔ PRISM (`examples/sir/`).
-- [x] Bio-PEPA-style functional rates (`beta * #I`, per-state evaluation in SOS) in text, builder and `pepa!`; PRISM `dtmc`/`ctmc` subset import with CSP synchronisation (`bisim-algebra::prism`, `analyse_prism`, `analyse_prism` JSON op).
-- [x] Event logs per trajectory (`Trajectory::log`: time, state, label) and MLE rate learning from labelled or unlabelled sequences (`learn_rates`, `without_labels`; `bisim-stochastic::simulate`).
-- [x] On-the-fly bisimulation game over lazily discovered pairs (Stirling game with budgets → `Holds`/`HoldsUpTo`/`Unknown`/`Violated` + HML witness; `bisim-refine::game`).
-- [x] Fluid ODE mean-field limits for array populations (SOS drift + RK4, no enumeration; `fluid_model`, `bisim-stochastic::integrate`, `fluid()` API + JSON op).
-- [x] PRISM rewards (`rewards` blocks → steady-state expectations) and `system` composition (`||`, `|[...]|`); JANI subset import lowering to the same AST (Storm/Modest interchange; `analyse_jani`, `query_jani`); CSL/PCTL-lite queries (`P[F]`, `P[F<=t]`, `S`, thresholds; `query_prism`, `query` JSON op).
-- [x] Faster backend: worklist refinement with dirty flags, cached signatures and Hopcroft move bound (`refine_fast`, differential-tested; drives `minimise` and the API analyses).
-- [ ] Bounded memory for long runs: compaction of settled positions. (The windowed checker in `legacy` evicts transitions and can retract verdicts; it is not sound.)
-- [x] Verdict streams (`bisimulationrs::streaming`): `VerdictStream` over any `futures_core::Stream` of events (the caller's waker reaches the source; no executor bundled), and `verdict_iter` over iterators and `mpsc` receivers; both emit only changed verdicts.
-- [x] Benchmark suites (`cargo bench -p bisimulationrs`): dense finite LTS (naive vs worklist), structured PEPA models, chains, cycles, stochastic traces, SSA ensembles, enumeration-free fluid, PRISM derive/transient.
-- [ ] Full counting-based Paige–Tarjan `O(m log n)` backend; symbolic (MTBDD) engine.
-- [ ] Full Modest language import; CSL `G`/`U`, nested system composition, renaming synchronisation; fluid for single components.
+- PEPA: http://www.dcs.ed.ac.uk/pepa/; Hillston, *A Compositional Approach to Performance Modelling* (1996)
+- Hillston, *Fluid flow approximation of PEPA models* (QEST 2005): http://www.dcs.ed.ac.uk/pepa/fluidflow.pdf
+- Hayden & Bradley, *Fluid-flow solutions in PEPA to the state space explosion problem* (PASTA 2007): https://spiral.imperial.ac.uk/handle/10044/1/5839
+- Ciocchetta & Hillston, *Bio-PEPA* (TCS 2009): http://homepages.inf.ed.ac.uk/jeh/Bio-PEPA/TCS_CH.pdf
+- PRISM process-algebra operators: http://www.prismmodelchecker.org/manual/ThePRISMLanguage/ProcessAlgebraOperators
+- Jensen, *Markoff chains as an aid in the study of Markoff processes* (Scandinavian Actuarial Journal, 1953): uniformisation
+- † Leguizamon-Robayo, Jiménez-Pastor, Tribastone, Tschaikowski, Vandin, *Approximate Constrained Lumping of Chemical Reaction Networks* (arXiv:2411.14242, 2024): https://arxiv.org/abs/2411.14242
 
-## Practical domain fit
+### Quantitative and approximate comparison
 
-Animal lifecycle benchmarking is a strong use case:
+- † Calo, Jonsson, Neu, Schwartz, Segovia-Aguas, *Bisimulation Metrics are Optimal Transport Distances, and Can be Computed Efficiently* (NeurIPS 2024, arXiv:2406.04056): https://arxiv.org/abs/2406.04056
+- † Calo, Jonsson, Neu, Schwartz, Segovia-Aguas, *Distances for Markov chains from sample streams* (NeurIPS 2025, arXiv:2505.18005): https://arxiv.org/abs/2505.18005
+- † Spork, Baier, Katoen, Piribauer, Quatmann, *A Spectrum of Approximate Probabilistic Bisimulations* (CONCUR 2024, arXiv:2407.07584): https://arxiv.org/abs/2407.07584
+- † Spork, Baier, Katoen, Klüppelholz, Piribauer, *Approximate Probabilistic Bisimulation for Continuous-Time Markov Chains* (CAV 2025, LNCS 15932, arXiv:2505.15587): https://arxiv.org/abs/2505.15587
+- † Castro, Kastner, Panangaden, Rowland, *MICo: Improved representations via sampling-based state similarity for Markov decision processes* (NeurIPS 2021, arXiv:2106.08229): https://arxiv.org/abs/2106.08229
+- † Ostrow, Eisen, Kozachkov, Fiete, *Beyond Geometry: Comparing the Temporal Structure of Computation in Neural Circuits with Dynamical Similarity Analysis* (NeurIPS 2023, arXiv:2306.10168): https://arxiv.org/abs/2306.10168
+- Altschuler, Weed, Rigollet, *Near-linear time approximation algorithms for optimal transport via Sinkhorn iteration* (NeurIPS 2017): the rounding step used by the Sinkhorn solver
+- Julius, Girard, Pappas, *Approximate bisimulation for a class of stochastic hybrid systems* (ACC 2006), via the Wayback Machine; Girard & Pappas, *Approximation metrics for discrete and continuous systems* (IEEE TAC 2007)
 
-- cyclic behavior,
-- noisy real-world dynamics,
-- rare but high-impact transitions (disease/death),
-- value in immediate alerts from prefix violations.
+### Causality
 
-This motivates streaming verdicts and eventually probabilistic extensions.
+- Bruni, Montanari, Sammartino, *Revisiting causality, coalgebraically* (Acta Informatica 52, 2015): https://arxiv.org/abs/1507.06462
+- † Vogler, *Deciding history preserving bisimilarity* (ICALP 1991); Montanari & Pistore, *Minimal transition systems for history-preserving bisimulation* (STACS 1997)
+- † Jategaonkar & Meyer, *Deciding true concurrency equivalences on safe, finite nets* (TCS 154(1), 1996; ICALP 1993): history-preserving bisimulation is DEXPTIME-complete on finite safe nets
+- † Ribaudo, *Stochastic Petri net semantics for stochastic process algebras* (PNPM 1995)
+- † Jacobs, Kissinger, Zanasi, *Causal Inference by String Diagram Surgery* (FoSSaCS 2019, arXiv:1811.08338; MSCS 31(5), 2021): https://arxiv.org/abs/1811.08338
+- † Fritz, *A synthetic approach to Markov kernels, conditional independence and theorems on sufficient statistics* (arXiv:1908.07021): https://arxiv.org/abs/1908.07021
+- † Huang & Valtorta, *Pearl's calculus of intervention is complete* (UAI 2006); Shpitser & Pearl, *Identification of joint interventional distributions in recursive semi-Markovian causal models* (AAAI 2006)
+- † Ness, Paneri, Vitek, *Integrating Markov processes with structural causal modeling enables counterfactual inference in complex systems* (NeurIPS 2019, arXiv:1911.02175): https://arxiv.org/abs/1911.02175
+- † Ying, *Causal Inference for Complex Continuous-Time Longitudinal Studies* (arXiv:2206.12525, rev. 2025): https://arxiv.org/abs/2206.12525
+- † Rytgaard & van der Laan, *Causal inference for calibrated scaling interventions on time-to-event processes* (arXiv:2510.16798, 2025): https://arxiv.org/abs/2510.16798
+- † Brodersen, Gallusser, Koehler, Remy, Scott, *Inferring causal impact using Bayesian structural time-series models* (Annals of Applied Statistics 9(1), 2015)
+- Shapley, *A value for n-person games* (1953): the attribution method
+
+### Verification
+
+- † Hölzl, *Markov chains and Markov decision processes in Isabelle/HOL* (JAR 2017, arXiv:1405.7012): https://home.cit.tum.de/~hoelzl/documents/hoelzl2017mdp.pdf
+- † Chatterjee, Quatmann, Schäffeler, Weininger, Winkler, Zilken, *Fixed Point Certificates for Reachability and Expected Rewards in MDPs* (TACAS 2025, arXiv:2501.11467): https://arxiv.org/abs/2501.11467
+- † Ho & Protzenko, *Aeneas: Rust Verification by Functional Translation* (ICFP 2022): https://www.microsoft.com/en-us/research/publication/aeneas-rust-verification-by-functional-translation/
+- † Lattuada et al., *Verus: Verifying Rust Programs using Linear Ghost Types* (OOPSLA 2023, arXiv:2303.05491): https://arxiv.org/abs/2303.05491
+- † *Kani: A Model Checker for Rust* (arXiv:2607.01504, 2026): https://arxiv.org/abs/2607.01504
+- Pous, up-to techniques for bisimulation, formalised in Coq: https://perso.ens-lyon.fr/damien.pous/upto

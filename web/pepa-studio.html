@@ -166,7 +166,7 @@ button.verdict { cursor: pointer; }
 button.verdict:hover { border-color: var(--accent); }
 .verdict.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .verdict .name { font-weight: 600; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
-.verdict .formula { font-family: var(--font-mono); font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.verdict .formula, .verdict-banner .formula { font-family: var(--font-mono); font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
 .verdict .why { color: var(--ink-2); font-size: 13px; }
 .legend-hl { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
 .legend-hl i { width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--hl); display: inline-block; }
@@ -185,6 +185,18 @@ input[type="text"].stage { width: 9em; }
 .verdict-banner.on { border-color: var(--ok); background: var(--ok-soft); }
 .verdict-banner p { margin: 0; }
 .fit-box { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.stream-grid { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.stream-script { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; width: 100%; min-height: 220px; box-sizing: border-box; resize: vertical; background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; tab-size: 2; }
+.stream-script:focus { outline: none; border-color: var(--accent); }
+.stream-now { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); }
+.stream-now .row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; align-items: baseline; }
+.stream-log tr.current td { background: var(--accent-soft); }
+.stream-log td.ev { white-space: normal; }
+.stream-log td.ev .mono { font-size: 12px; }
+.stream-log td.ev .hint { display: block; font-size: 11.5px; }
+.stream-log td.res { white-space: normal; min-width: 9em; }
+.stream-log td.res .hint { display: block; font-size: 11.5px; }
+.stream-log tr.changed td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; font-family: var(--font-mono); }
 .chart .band { fill: var(--s1); opacity: 0.16; }
 .chart .obs-dot { stroke: var(--panel); stroke-width: 2; }
@@ -243,6 +255,7 @@ input[type="text"].stage { width: 9em; }
           <button class="tab" role="tab" id="tab-time" aria-selected="false" data-view="time">Over time</button>
           <button class="tab" role="tab" id="tab-observe" aria-selected="false" data-view="observe">Observations</button>
           <button class="tab" role="tab" id="tab-compare" aria-selected="false" data-view="compare">Compare</button>
+          <button class="tab" role="tab" id="tab-stream" aria-selected="false" data-view="stream">Stream</button>
           <button class="tab" role="tab" id="tab-tutorial" aria-selected="false" data-view="tutorial">Tutorial</button>
         </div>
       </div>
@@ -329,6 +342,12 @@ input[type="text"].stage { width: 9em; }
           <div class="card"><h3>A</h3><div class="graph small" id="graph-a"></div></div>
           <div class="card"><h3>B</h3><div class="graph small" id="graph-b"></div></div>
         </div>
+        <div class="fit-box" id="causal-box">
+          <span class="label">Same dependencies?</span>
+          <p class="hint">Two models can allow the same steps in the same orders, even at the same rates, and still differ in which step waits for which: two workers water and weed independently, one farmer does one after the other. This check compares the models’ causal nets (history-preserving bisimulation, rates ignored).</p>
+          <div id="causal-result" aria-live="polite"></div>
+          <p class="hint">Read <span class="mono">⟨a ← 1,2⟩φ</span> as “can do an a that depends on the 1st and 2nd step so far, then φ”, and <span class="mono">⟨a ← ∅⟩φ</span> as “can do an a that depends on none of the earlier steps, then φ”.</p>
+        </div>
         <div class="fit-box" id="dist-box">
           <span class="label">How far apart?</span>
           <p class="hint">When the models differ, how much does it matter? Pick a count to watch. The distance runs both models side by side in the way that makes that count look most alike; differences further ahead count less. The tolerance check asks whether jump probabilities differ by at most ε and rates by at most a factor e<sup>δ</sup>, and bounds how much any outcome can differ by the horizon.</p>
@@ -352,6 +371,27 @@ input[type="text"].stage { width: 9em; }
             <span class="hint dist-unit"></span>
           </div>
           <div id="epsdelta-result" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div class="view" id="view-stream" role="tabpanel" aria-labelledby="tab-stream" hidden>
+        <p class="hint">Compare a running system with its plan while it runs. The plan is known in advance; the bed is observed one event at a time. After each event the comparison is updated in place (only what the new event touches is recomputed), and the verdict says either <b>holds so far</b> (no difference yet, but more can still happen) or a <b>final</b> difference: an observed step that a state declared finished can never answer. A difference is final only then, so a late observation never causes a false alarm.</p>
+        <div class="obs-controls">
+          <label class="hint" for="stream-scenario">Scenario</label>
+          <select id="stream-scenario"></select>
+          <button class="btn primary" id="stream-step" type="button">Next event</button>
+          <button class="btn" id="stream-play" type="button">Play</button>
+          <button class="btn" id="stream-reset" type="button">Restart</button>
+          <span class="hint" id="stream-progress"></span>
+        </div>
+        <div class="stream-grid">
+          <div class="stream-now" id="stream-now" aria-live="polite"></div>
+          <div class="table-wrap stream-log" style="max-height:300px"><table id="stream-log"></table></div>
+          <div>
+            <label class="label" for="stream-script">Event script</label>
+            <textarea class="stream-script" id="stream-script" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+            <p class="hint">One event per line: <span class="mono">plan: A -act-&gt; B</span> or <span class="mono">bed: A -act-&gt; B</span> for an observed step, <span class="mono">bed done: A</span> when a state can do nothing more, <span class="mono">plan starts: A</span> / <span class="mono">bed starts: A</span> for the initial states. Lines starting with <span class="mono">#</span> are notes shown with the next event. Editing the script restarts the replay.</p>
+          </div>
         </div>
       </div>
 
@@ -438,7 +478,7 @@ P′ = { states with equal signatures under P }.</div>
    long-run throughput (harvests per week at equilibrium) is the natural
    one-number summary for a system that does not end. Bisimilar systems have equal
    throughput.</div>
-          <p><strong>Verdicts on a running prefix.</strong> Only part of the behaviour has been observed so far, and a transition that is missing now may simply not have happened yet. A sound verdict on a prefix therefore reports a difference only when it can no longer be repaired: an observed move has no matching answer from a state declared complete. Until then the answer is “holds so far”. The <code>PrefixChecker</code> in <code>bisim-refine</code> implements exactly this.</p>
+          <p><strong>Verdicts on a running prefix.</strong> Only part of the behaviour has been observed so far, and a transition that is missing now may simply not have happened yet. A sound verdict on a prefix therefore reports a difference only when it can no longer be repaired: an observed move has no matching answer from a state declared complete. Until then the answer is “holds so far”. The <code>PrefixChecker</code> in <code>bisim-refine</code> implements exactly this, updating its answer in place as each event arrives; the <b>Stream</b> tab replays three harvest seasons through it, one event at a time.</p>
           <p><strong>Where exact bisimulation breaks.</strong> Real rates are never exactly equal (§10), and a field gives events and counts, not rates. So the comparison is between the plan and a <em>model fitted to the observations</em>, not between the plan and raw data, and it must be quantitative: <code>(ε, δ)</code>-closeness and a behavioural distance, not yes or no. Repeated counts of the same plants on different dates are strongly dependent, which a fit must respect.</p>
           <div class="block">event log per plant or animal ──▶ fitted rates ──▶ fitted model
                                                         │
@@ -450,14 +490,15 @@ P′ = { states with equal signatures under P }.</div>
           <p><strong>A caution about causes.</strong> This comparison is association, not causation. “Plot B is behind plan” can be read straight off the verdict; “the guild is working” cannot, because soil, weather and management differ between plots. Causal claims need a design behind them (a control plot, matched units) or a model whose structure you trust. Fitted rates from a handful of dated counts rarely tell competing mechanisms apart.</p>
 
           <h3>12. What-if and attribution; event dependencies</h3>
-          <p>Next to bisimulation, “causality” can mean two different things. Only the first is available, and it is <em>not</em> a claim about causes on the farm: it describes how a model behaves. The second is the established concurrency-theory notion and is not built yet.</p>
+          <p>Next to bisimulation, “causality” can mean two different things, and both are available. Neither is a claim about causes on the farm: they describe how a model behaves. The first changes rates and asks what follows; the second compares which steps depend on which.</p>
           <p><strong>Available (API) — what-if and attribution on the model.</strong> A PEPA model is a mechanism: setting a rate and re-deriving the chain asks “what does the model do if this rate were different?”. Two operations use it.</p>
           <div class="block">what-if    set rates, compare the expected count of a state with the baseline
 attribute  plan and fitted model differ in several rates, and so does the outcome:
            how much of the gap does each rate account for?</div>
           <p>Attribution is a Shapley decomposition. Each differing rate is switched from its plan value to its fitted value, in every possible order; a rate’s contribution is its average effect on the outcome over those orders. By Shapley’s theorem the contributions add up to the gap exactly, whatever the interactions, and a rate the outcome does not depend on gets exactly zero. This is a convention, not the only reasonable split: it treats every order of switching as equally likely and starts from the plan, so for interacting rates a different split (one rate alone, or a variance-based one) gives other numbers; the tool reports the effect of each rate alone beside the Shapley value. The two models must differ only in the values of their parameters, which is checked, not assumed. At most 8 rates are decomposed (the cost is <code>2<sup>n</sup></code> evaluations). JSON operations <code>whatif</code> and <code>attribute</code>; the example <code>attribute_tomatoes</code> fits the tomato bed to its counts and shows ripening as the rate that explains most of the shortfall.</p>
           <p><strong>What this does and does not show.</strong> It says which rate the <em>model</em> has to change to reproduce the counts. That carries over to the farm only if the model’s structure is right, and a few dated counts rarely distinguish competing mechanisms. Evidence about what actually holds a plot back needs a design: a control plot or matched units left untreated. This tab has no button for these operations yet.</p>
-          <p><strong>Planned — causality between events (causal bisimulation).</strong> Ordinary bisimulation (§1) treats a run as a sequence of actions. Causal and history-preserving bisimulation also track <em>which event enabled which</em>. Two systems can perform the same actions at the same rates and still differ in their dependencies: in one the harvest needs a pollination to have happened first, in the other the two are independent. Event structures and the causal semantics of process algebra (Bruni, Montanari and Sammartino, “Revisiting causality, coalgebraically”) are the basis. History-preserving bisimulation is decidable for finite safe Petri nets (Vogler, ICALP 1991) and for finite n-safe nets (Montanari and Pistore, STACS 1997); finer variants are harder, and some questions are open. I found no source that combines causal bisimulation with rates, as a PEPA model would need, so a stochastic version would be new work whose correctness has to be argued and not assumed. It is not implemented.</p>
+          <p><strong>Available (API) — causality between events (history-preserving bisimulation).</strong> Ordinary bisimulation (§1) treats a run as a sequence of actions. History-preserving bisimulation also tracks <em>which step enabled which</em>. Each component of a PEPA model becomes a token moving through its local states (a safe Petri net), and a step depends on an earlier one when it moves a component that the earlier step moved. Two systems can perform the same actions at the same rates and still differ here. Two workers who water and weed independently give the same Markov chain as one farmer who does both, but for the farmer every task waits on the previous one. Likewise, with one vet each healing depends on the previous healing, which a second vet removes. The answer comes with a witness such as <code>⟨water ← ∅⟩⟨weed ← ∅⟩tt</code>: “a watering that depends on nothing earlier, then a weeding that depends on nothing earlier either” holds for the two workers, not for the farmer. In <code>⟨a ← 1,2⟩</code>, the numbers are the earlier steps the <code>a</code> depends on.</p>
+          <p>The method is decidable for finite safe nets (Vogler, ICALP 1991), and DEXPTIME-complete there (Jategaonkar and Meyer, TCS 1996). The finite form of the game used here, which groups past steps by the tokens that depend on them, is this library’s own construction. It is proved in Lean to decide the same thing as the definition, and the code is tested against the definition on random nets. Rates are left out. A model with functional rates (<code>#Name</code>) is refused, because such a rate can switch a step off, which the net cannot express. I found no source that combines causal bisimulation with rates, so a stochastic version would be new work. JSON operation <code>causal</code>; example <code>causal_farm</code>.</p>
 
           <h3>Exercises</h3>
           <p class="lede">Each exercise states a claim, loads the models, and asks you to check it in the tool. Answers are folded away; open them after you have tried the claim.</p>
@@ -695,6 +736,11 @@ Resting = (hunt, hunt_start * #Infested).Hunting;
 Hunting = (rest, hunt_stop).Resting;
 
 Healthy[60] || Resting[12]`,
+  "Two workers": `// Two workers, one per task, working independently. Rates are per day.
+Waterer = (water, 1).Waterer;
+Weeder  = (weed, 1).Weeder;
+
+Waterer || Weeder`,
 };
 
 // Counts that come with an example (dates dd/mm/yyyy).
@@ -706,9 +752,9 @@ const EXAMPLE_OBS = {
     ["17/07/2026", "Vegetative", 6], ["17/07/2026", "Ripe", 1],
   ] },
 };
-const EXAMPLE_UNIT = { "Herd health": "second", "Hillston cycle": "second", "Clients and server": "second", "Tomato bed": "day", "Coral reef": "week", "Antibiotic cycling": "day", "Bass diffusion": "day", "Credit ratings": "day", "Permaculture guild": "week" };
+const EXAMPLE_UNIT = { "Herd health": "second", "Hillston cycle": "second", "Clients and server": "second", "Tomato bed": "day", "Coral reef": "week", "Antibiotic cycling": "day", "Bass diffusion": "day", "Credit ratings": "day", "Permaculture guild": "week", "Two workers": "day" };
 // How far the time view looks, in the example's unit.
-const EXAMPLE_HORIZON = { "Herd health": 100, "Tomato bed": 120, "Coral reef": 104, "Antibiotic cycling": 60, "Bass diffusion": 720, "Credit ratings": 3650, "Permaculture guild": 26 };
+const EXAMPLE_HORIZON = { "Herd health": 100, "Tomato bed": 120, "Coral reef": 104, "Antibiotic cycling": 60, "Bass diffusion": 720, "Credit ratings": 3650, "Permaculture guild": 26, "Two workers": 10 };
 
 const PRESETS_B = {
   "No recovery (vs herd)": `r_disease = 0.02;
@@ -739,6 +785,10 @@ Infested = (damage, damage).Lost;
 Lost = 0;
 
 Healthy[60]`,
+  "One farmer (vs two workers)": `// One farmer doing both tasks, one after the other. Rates are per day.
+Farmer = (water, 1).Farmer + (weed, 1).Farmer;
+
+Farmer`,
 };
 
 // ---------- Tutorial exercise models (all numbers in the Tutorial tab
@@ -1014,6 +1064,7 @@ function renderView() {
   else if (activeView === "time") renderTime();
   else if (activeView === "observe") runObserve();
   else if (activeView === "compare") runCompare();
+  else if (activeView === "stream") streamEnsure();
 }
 
 // ---------- View: state space ----------
@@ -1181,7 +1232,24 @@ function runCompare() {
   }).join("") + `<p class="hint">Read ⟨a⟩φ as “can do a, then φ”; ⟨a⟩=r φ as “does a at total rate r s⁻¹ into states where φ holds”; ¬ as “not”; tt as “true”.</p>`;
   host.querySelectorAll("button.verdict").forEach((b) => b.addEventListener("click", () => { activeVerdict = b.dataset.key; runCompare(); }));
   drawCompareGraphs();
+  runCausal();
   runDistance();
+}
+
+// ---------- Compare: same dependencies (causality) ----------
+function runCausal() {
+  const host = document.getElementById("causal-result");
+  if (!comparison) { host.innerHTML = `<p class="hint">Fix both models to compare their dependencies.</p>`; return; }
+  const res = api({ op: "causal", a: editorA.value, b: editorB.value, max_states: 2000 });
+  if (res.error) { host.innerHTML = `<p class="hint">${escapeHtml([...new Set([...res.error.a, ...res.error.b].map((d) => d.message))].join("; "))}</p>`; return; }
+  const r = res.ok;
+  const pill = r.causal === "holds" ? `<span class="pill ok">✓ same</span>`
+    : r.causal === "violated" ? `<span class="pill bad">✕ differs</span>` : `<span class="pill warn">? unknown</span>`;
+  const witness = r.causal_witness ? `<div class="formula">${escapeHtml(r.causal_witness)} <span class="hint">holds in A</span></div>` : "";
+  const count = (k, word) => `<b>${k}</b> ${word}${k === 1 ? "" : "s"}`;
+  const net = (n, name) => `<span>${name}: ${count(n.components, "component")}, ${count(n.places, "place")}, ${count(n.transitions, "transition")}</span>`;
+  host.innerHTML = `<div class="verdict-banner${r.causal === "holds" ? " on" : r.causal === "violated" ? " off" : ""}">${pill}<div>${witness}<p>${escapeHtml(r.explanation.split(r.causal_witness ? " Witness: " : " Read ")[0])}</p>` +
+    `<div class="facts"><span>same sequences of actions <b>${r.interleaving_bisimilar ? "yes" : "no"}</b></span>${net(r.nets[0], "A")}${net(r.nets[1], "B")}</div></div></div>`;
 }
 
 // ---------- Compare: how far apart (bisimulation distance, (ε, δ)) ----------
@@ -1468,11 +1536,223 @@ document.getElementById("obs-state").addEventListener("change", drawObsChart);
 document.getElementById("fit-run").addEventListener("click", runFit);
 document.getElementById("unit").addEventListener("change", (e) => { setUnit(e.target.value); renderTime(); });
 
+// ---------- View: stream (incremental prefix comparison) ----------
+// The plan of a perennial bed is a cycle with a harvest loop: it never
+// ends, so "same behaviour" can only be confirmed coinductively, by
+// checking that every observed step is matched. Each event is pushed into
+// a `prefix` session of the engine, which updates the comparison in place.
+const PLAN_CYCLE = `# The plan (known in advance): a perennial crop, harvested repeatedly.
+plan starts: Dormant
+plan: Dormant -bud-> Flowering
+plan: Flowering -set_fruit-> Fruiting
+plan: Fruiting -harvest-> Fruiting
+plan: Fruiting -senesce-> Dormant
+plan done: Dormant
+plan done: Flowering
+plan done: Fruiting
+`;
+const STREAM_SCENARIOS = {
+  "On track (different bookkeeping)": PLAN_CYCLE + `
+# The bed, as observed. Its records alternate between two fruiting
+# states, but that is the same behaviour as the plan's single loop.
+bed starts: Dormant
+# week 6
+bed: Dormant -bud-> Flowering
+bed done: Dormant
+# week 9
+bed: Flowering -set_fruit-> Fruit_a
+bed done: Flowering
+# week 11: first picking
+bed: Fruit_a -harvest-> Fruit_b
+# week 12
+bed: Fruit_b -harvest-> Fruit_a
+# week 20: the season ends; from either fruiting record
+bed: Fruit_a -senesce-> Dormant
+bed: Fruit_b -senesce-> Dormant
+bed done: Fruit_a
+bed done: Fruit_b
+`,
+  "Harvest stops": PLAN_CYCLE + `
+# The bed gives one picking, then nothing more until it dies back.
+bed starts: Dormant
+# week 6
+bed: Dormant -bud-> Flowering
+bed done: Dormant
+# week 9
+bed: Flowering -set_fruit-> Fruiting
+bed done: Flowering
+# week 11: first picking (the bed could also have died back from here)
+bed: Fruiting -harvest-> Spent
+bed: Fruiting -senesce-> Dormant
+bed done: Fruiting
+# weeks 12–15: nothing to pick. Still only "holds so far": Spent may yet
+# give fruit.
+# week 16: it dies back; Spent is now known to do nothing else, so the
+# plan's second picking can never be matched.
+bed: Spent -senesce-> Dormant
+bed done: Spent
+`,
+  "Late picking, no false alarm": PLAN_CYCLE + `
+# A slow start: the first picking comes late, but it comes.
+bed starts: Dormant
+# week 6
+bed: Dormant -bud-> Flowering
+bed done: Dormant
+# week 9
+bed: Flowering -set_fruit-> Fruiting
+bed done: Flowering
+# weeks 10–14: no picking yet. The plan says harvest, but Fruiting is not
+# finished, so this is not a difference (yet).
+bed: Fruiting -senesce-> Dormant
+# week 15: the picking arrives after all
+bed: Fruiting -harvest-> Fruiting
+bed done: Fruiting
+# week 16: a record from a state already declared done is refused, so a
+# verdict can never be overturned afterwards.
+bed: Dormant -frost-> Dormant
+`,
+};
+
+let stream = { script: "", events: [], errors: [], pos: 0, id: null, rows: [], last: null, timer: null };
+
+function parseStreamScript(text) {
+  const events = [], errors = [];
+  let note = [];
+  text.split("\n").forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line) return;
+    if (line.startsWith("#")) { note.push(line.replace(/^#\s*/, "")); return; }
+    let m;
+    const take = (e) => { events.push({ ...e, line: i + 1, note: note.join(" "), text: line }); note = []; };
+    if ((m = line.match(/^(plan|bed)\s+starts:\s*(\S+)$/))) take({ kind: "start", side: m[1], state: m[2] });
+    else if ((m = line.match(/^(plan|bed):\s*(\S+)\s*-\s*([^\s>-][^\s>]*)\s*->\s*(\S+)$/))) take({ kind: "step", side: m[1], from: m[2], act: m[3], to: m[4] });
+    else if ((m = line.match(/^(plan|bed)\s+done:\s*(\S+)$/))) take({ kind: "done", side: m[1], state: m[2] });
+    else errors.push(`line ${i + 1}: cannot read “${line}”`);
+  });
+  const start = (side) => events.find((e) => e.kind === "start" && e.side === side);
+  if (!start("plan")) errors.push("say where the plan starts: plan starts: State");
+  if (!start("bed")) errors.push("say where the bed starts: bed starts: State");
+  return { events: events.filter((e) => e.kind !== "start"), starts: { plan: start("plan")?.state, bed: start("bed")?.state }, errors };
+}
+
+function streamStop() {
+  if (stream.timer) clearInterval(stream.timer);
+  stream.timer = null;
+  document.getElementById("stream-play").textContent = "Play";
+}
+
+function streamReset() {
+  streamStop();
+  if (stream.id != null && wasm) api({ op: "session_close", id: stream.id });
+  const text = document.getElementById("stream-script").value;
+  const parsed = parseStreamScript(text);
+  stream = { script: text, events: parsed.events, errors: parsed.errors, pos: 0, id: null, rows: [], last: null, timer: null };
+  if (!parsed.errors.length && wasm) {
+    const r = api({ op: "session_open", session: { kind: "prefix", left: parsed.starts.plan, right: parsed.starts.bed } });
+    if (r.ok) stream.id = r.ok.id; else stream.errors.push(...(r.error || []).map((d) => d.message));
+  }
+  renderStream();
+}
+
+function streamEnsure() {
+  if (stream.id == null || stream.script !== document.getElementById("stream-script").value) streamReset();
+  else renderStream();
+}
+
+function streamStep() {
+  if (stream.id == null || stream.pos >= stream.events.length) { streamStop(); return; }
+  const e = stream.events[stream.pos++];
+  const side = e.side === "plan" ? "left" : "right";
+  const event = e.kind === "step" ? { [side]: [e.from, e.act, e.to] } : { ["complete_" + side]: e.state };
+  const r = api({ op: "session_push", id: stream.id, events: [event] });
+  if (r.ok) {
+    stream.last = r.ok.verdict;
+    stream.rows.push({ e, verdict: r.ok.verdict, changed: r.ok.changed });
+  } else {
+    const message = (r.error || []).map((d) => d.message).join(" ");
+    // The engine reports the side as left/right; say it in this page's words.
+    const done = e.kind === "step" && /declared complete/.test(message);
+    stream.rows.push({ e, error: done ? `${e.from} was declared done, so it cannot take new steps; the verdict stands.` : message });
+  }
+  if (stream.pos >= stream.events.length) streamStop();
+  renderStream();
+}
+
+const STREAM_ROWS = [
+  ["bisimilar", "Same behaviour as the plan"],
+  ["right_simulates_left", "Bed can do all the plan does"],
+  ["mutually_similar", "Each can mimic the other"],
+];
+function streamPill(v) {
+  if (!v) return `<span class="pill">not started</span>`;
+  return {
+    holds: `<span class="pill ok">holds</span>`,
+    holds_so_far: `<span class="pill warn">holds so far</span>`,
+    violated: `<span class="pill bad">differs · final</span>`,
+    unknown: `<span class="pill">undecided</span>`,
+  }[v.verdict] || `<span class="pill">${escapeHtml(v.verdict)}</span>`;
+}
+function streamSentence(v) {
+  if (!v) return "No events yet.";
+  if (v.verdict === "holds") return "Same behaviour, for good: every state involved has been declared done, so nothing can change this.";
+  if (v.verdict === "holds_so_far") return "No difference so far. Some state involved may still do more, so this can still change either way.";
+  if (v.verdict === "violated") {
+    // The witness holds in the plan; a leading ¬ means the bed is the one
+    // that can do something the plan cannot.
+    const w = v.witness || "", bedMore = w.startsWith("¬");
+    const shown = escapeHtml(bedMore ? w.replace(/^¬/, "") : w);
+    return `A difference that no later event can repair. The ${bedMore ? "bed" : "plan"} can do <span class="mono">${shown}</span> and the ${bedMore ? "plan" : "bed"} cannot (read ⟨a⟩φ as “can do a, then φ”, ¬ as “cannot”).`;
+  }
+  return "Undecided within the engine's search budget.";
+}
+
+function renderStream() {
+  const total = stream.events.length;
+  document.getElementById("stream-progress").textContent = stream.errors.length ? "" : `event ${stream.pos} of ${total}`;
+  document.getElementById("stream-step").disabled = !!stream.errors.length || stream.pos >= total;
+  const now = document.getElementById("stream-now");
+  if (stream.errors.length) {
+    now.innerHTML = stream.errors.map((m) => `<div class="diag"><span class="pill bad">error</span><span>${escapeHtml(m)}</span></div>`).join("");
+  } else {
+    const v = stream.last;
+    now.innerHTML = STREAM_ROWS.map(([key, label]) => `<div class="row"><span>${label}</span><span>${streamPill(v?.[key])}</span></div>`).join("")
+      + `<p class="hint">${streamSentence(v?.bisimilar)}</p>`;
+  }
+  const log = document.getElementById("stream-log");
+  if (!stream.rows.length) { log.innerHTML = `<tbody><tr><td class="hint">Press “Next event” or “Play”.</td></tr></tbody>`; return; }
+  log.innerHTML = `<thead><tr><th>#</th><th>event</th><th>same behaviour</th></tr></thead><tbody>` +
+    stream.rows.map((r, i) => {
+      const cls = [i === stream.rows.length - 1 ? "current" : "", r.changed ? "changed" : ""].join(" ").trim();
+      const result = r.error ? `<span class="pill bad">refused</span> <span class="hint">${escapeHtml(r.error)}</span>` : streamPill(r.verdict.bisimilar);
+      return `<tr class="${cls}"><td>${i + 1}</td><td class="ev">${r.e.note ? `<span class="hint">${escapeHtml(r.e.note)}</span>` : ""}<span class="mono">${escapeHtml(r.e.text)}</span></td><td class="res">${result}</td></tr>`;
+    }).join("") + `</tbody>`;
+  const wrap = log.parentElement;
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+const streamScenario = document.getElementById("stream-scenario");
+streamScenario.innerHTML = Object.keys(STREAM_SCENARIOS).map((k) => `<option>${k}</option>`).join("");
+document.getElementById("stream-script").value = STREAM_SCENARIOS[streamScenario.value];
+streamScenario.addEventListener("change", () => {
+  document.getElementById("stream-script").value = STREAM_SCENARIOS[streamScenario.value];
+  streamReset();
+});
+let streamEditTimer = null;
+document.getElementById("stream-script").addEventListener("input", () => { clearTimeout(streamEditTimer); streamEditTimer = setTimeout(streamReset, 400); });
+document.getElementById("stream-step").addEventListener("click", () => { streamStop(); streamStep(); });
+document.getElementById("stream-reset").addEventListener("click", streamReset);
+document.getElementById("stream-play").addEventListener("click", () => {
+  if (stream.timer) { streamStop(); return; }
+  if (stream.pos >= stream.events.length) streamReset();
+  document.getElementById("stream-play").textContent = "Pause";
+  stream.timer = setInterval(streamStep, 900);
+});
+
 // ---------- Wiring ----------
 function setView(view) {
   activeView = view;
   document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.view === view)));
-  for (const v of ["space", "components", "time", "observe", "compare", "tutorial"]) document.getElementById("view-" + v).hidden = v !== view;
+  for (const v of ["space", "components", "time", "observe", "compare", "stream", "tutorial"]) document.getElementById("view-" + v).hidden = v !== view;
   store.set("view", view);
   renderView();
 }
@@ -1499,7 +1779,7 @@ exampleSel.addEventListener("change", () => {
     ? { start: ex.start, unit: ex.unit, level: "0.95", rows: ex.rows.map(([date, state, count]) => ({ date, state, count, component: "" })) }
     : { ...obsState, unit: EXAMPLE_UNIT[exampleSel.value] || obsState.unit, rows: [] };
   saveObs(); obsInputsFor = null;
-  const pair = { "Herd health": "No recovery (vs herd)", "Hillston cycle": "Array form (vs cycle)", "Permaculture guild": "Monoculture (vs guild)" }[exampleSel.value];
+  const pair = { "Herd health": "No recovery (vs herd)", "Hillston cycle": "Array form (vs cycle)", "Permaculture guild": "Monoculture (vs guild)", "Two workers": "One farmer (vs two workers)" }[exampleSel.value];
   if (pair) { presetSel.value = pair; editorB.value = PRESETS_B[pair]; store.set("b", editorB.value); }
   schedule();
 });
@@ -1539,7 +1819,7 @@ new MutationObserver(reTheme).observe(document.documentElement, { attributes: tr
     return;
   }
   const savedView = store.get("view");
-  if (savedView && ["space", "components", "time", "observe", "compare", "tutorial"].includes(savedView)) activeView = savedView;
+  if (savedView && ["space", "components", "time", "observe", "compare", "stream", "tutorial"].includes(savedView)) activeView = savedView;
   setView(activeView);
   runA();
 })();

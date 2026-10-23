@@ -30,9 +30,9 @@ use serde_json::{Value, json};
 
 use crate::{
     Atom, Intervention, Observation, Options, Timeline, analyse, analyse_jani, analyse_prism,
-    attribute, check, check_jani, check_observations, check_prism, compare, distance, dsa,
-    epsdelta, fit_parameters_from, fluid, forecast, query_jani, query_prism, stream_distance,
-    transient, what_if,
+    attribute, causal_compare, check, check_jani, check_observations, check_prism, compare,
+    distance, dsa, epsdelta, fit_parameters_from, fluid, forecast, query_jani, query_prism,
+    stream_distance, transient, what_if,
 };
 
 #[derive(Deserialize)]
@@ -134,6 +134,11 @@ enum Request {
     #[serde(rename = "session_close")]
     SessionClose {
         id: u64,
+    },
+    Causal {
+        a: String,
+        b: String,
+        max_states: Option<usize>,
     },
     Distance {
         a: String,
@@ -294,6 +299,9 @@ fn handle(request: &str) -> Value {
         Ok(Request::SessionOpen { session }) => respond(crate::session::open(session, options)),
         Ok(Request::SessionPush { id, events }) => respond(crate::session::push(id, events)),
         Ok(Request::SessionClose { id }) => respond(crate::session::close(id)),
+        Ok(Request::Causal { a, b, max_states }) => {
+            respond(causal_compare(&a, &b, options(max_states)))
+        }
         Ok(Request::Distance {
             a,
             b,

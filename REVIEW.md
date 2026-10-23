@@ -310,7 +310,22 @@ on class-sum rates and no such bound is claimed.
 Not checked: Kurtz, Hillston (1996), Sangiorgi (2012) and the older
 references in the README list.
 
-## Event causality: status (20/10/2026)
+## Event causality: status (20/10/2026, updated 23/10/2026)
+
+Update 23/10/2026: implemented, untimed:
+- PEPA gets a causal semantics as a safe Petri net (`PepaModel::causal_net`). Its
+  interleaving is tested to be bisimilar to the derivation.
+- History-preserving bisimulation is decided on a finite game whose positions group
+  past steps by the tokens that depend on them (`bisim_refine::hp_bisimilar`). This
+  grouping is our own construction. It agrees with the definition, played with full
+  histories, on 1,205 random acyclic net pairs, 212 of which differ only in causality.
+  Proved in Lean on a model of the game (`lean/Bisim/Causal.lean`, `hpBisimilar_iff`):
+  the grouped game and the definition have the same winner. The search with refutation
+  counters and the witnesses are not part of the proof.
+- Violations carry formulas with causes, re-checked on both nets.
+- Functional rates are refused, and rates are not part of the causal comparison.
+
+The original note follows.
 
 Not implemented; left as planned (Tutorial section 12). What a search found
 (abstract level, full texts not read): history-preserving bisimilarity is

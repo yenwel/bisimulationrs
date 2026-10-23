@@ -25,6 +25,7 @@
 //! - [`compare`] / [`bisimilar`]: the user-facing checks on two systems.
 
 mod approx;
+mod causal;
 mod compare;
 mod fast;
 mod game;
@@ -34,6 +35,7 @@ mod simulation;
 mod stream;
 
 pub use approx::{Tolerance, approx_bisimilar_states, approx_distance, lumping_error};
+pub use causal::{CausalBudget, CausalFormula, hp_bisimilar};
 pub use compare::{
     NoInitialState, bisimilar, bisimilar_states, compare, minimise, try_bisimilar, try_compare,
 };

@@ -17,6 +17,7 @@ Runnable Rust programs (`cargo run -p bisimulationrs --example <name>`):
 | `behaviour_distance` | a number for how differently a guild and a monoculture behave, the situations that drive it, and 0 for the same bed written plant by plant |
 | `tolerance_plan` | a herd within (ε, δ) of its plan, the guaranteed bound on reaching cull weight next to the actual difference |
 | `inspection_logs` | the distance estimated from weekly inspection logs alone, picking the plan closest to the truth |
+| `causal_farm` | same Markov chain, different dependencies: two workers vs one farmer, two vets vs one, with a witness naming the causes |
 | `sensor_similarity` | dynamical similarity of sensor series: 0 for remixed sensors, positive for a bed without companions |
 
 ## Population models from biology, ecology and economics

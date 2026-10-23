@@ -17,6 +17,7 @@
 
 mod formula;
 mod ids;
+mod net;
 mod partition;
 mod semiring;
 mod signature;
@@ -26,6 +27,7 @@ mod wlts;
 
 pub use formula::Formula;
 pub use ids::{Interner, LabelId, StateId};
+pub use net::{Contact, Marking, NetTransition, ReachError, SafeNet};
 pub use partition::Partition;
 pub use semiring::{Real, RealKey, Semiring, SignatureKey};
 pub use signature::Signature;

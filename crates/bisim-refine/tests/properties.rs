@@ -781,7 +781,10 @@ fn incremental_prefix_games_match_replay_with_delayed_completion() {
                         checker.compact_and_minimise();
                     }
                     let after = checker.live_positions();
-                    assert!(after <= before, "round {round} step {step}: compaction grew");
+                    assert!(
+                        after <= before,
+                        "round {round} step {step}: compaction grew"
+                    );
                     shrunk += usize::from(after < before);
                     held += usize::from(checker.held_pairs() > 0);
                 }
