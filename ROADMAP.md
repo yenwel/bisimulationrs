@@ -3,7 +3,8 @@
 Three tracks:
 1. making every answer **verifiable**;
 2. a **causal** layer;
-3. the remaining **engineering** work.
+3. the remaining **engineering** work;
+4. **scaling** past state-space explosion without giving up sound verdicts.
 
 References are in the [README](README.md#references). Dates are dd/mm/yyyy.
 
@@ -166,3 +167,119 @@ Open:
 - [ ] Bounded memory for cyclic streams that never settle: compaction only helps once positions settle.
 - [ ] Confidence-aware verdicts (`Unknown(p)`) for models fitted from data.
 - [ ] Open items listed in [REVIEW.md](REVIEW.md) ("Not done").
+
+## 4. Scaling
+
+**Goal:** handle models whose state space is too large to enumerate, without weakening
+what a verdict means. Every route below says which answers stay **sound** (true of the
+model whenever given) and which become estimates. An estimate is never reported as
+`Holds` or `Violated`: it is `Unknown`, `Unknown(p)` or a number with its error.
+
+### Where we are (23/10/2026)
+
+| route | saves | sound verdicts | status |
+|---|---|---|---|
+| Compositional minimisation | the product of the components' sizes, down to the product of their quotients | all: same, differs, quantities | proved (Lean); not wired into derivation |
+| Symbolic engine (MTBDD) | memory for structured state spaces | all, when exact | open (section 3) |
+| Fluid and mean-field limits | the whole state space, for large populations | none; approximations with limit guarantees | done for PEPA (`fluid_model`), no error bound |
+| Statistical model checking | the whole state space | none; confidence-bounded estimates | SSA exists, no stopping rules |
+| RL as a witness finder | search effort for refutations | **differs** only, after re-checking the witness | not started |
+| Quantum algorithms | at most quadratic search | not applicable today | exploratory only |
+
+### 4a. Compositional minimisation (first)
+
+Minimise each component, or each sub-term of the system equation, before composing,
+and compose the quotients. Lean already proves this sound: weighted bisimulation is a
+congruence for parallel composition (`IsBisim.par`), PEPA cooperation preserves strong
+equivalence (`IsBisim.pepaPar`), and lumpings survive contexts (`lump_in_context`).
+
+- **Sound:** all verdicts and all quantities computed on the composed quotient, for
+  strong equivalence. The quotient is exact, not an approximation.
+- Not covered by the proofs: hiding, and composing more than two components other than by
+  iterating the theorem (Level 2 above extends this).
+- Use the ordering heuristics of "smart reduction" (Crouzen & Lang, FMOODS/FORTE 2011):
+  pick the composition order that keeps the intermediate products small.
+- Emit the partitions as Level 1 certificates, per component.
+
+### 4b. Symbolic engine (MTBDD)
+
+Represent transition systems and partitions as multi-terminal decision diagrams
+(Hermanns, Kwiatkowska, Norman, Parker & Siegle, JLAP 2003) and refine partitions
+symbolically (Wimmer, Derisavi & Hermanns, *Sigref*, 2006–2010).
+
+- **Sound:** all verdicts, if refinement runs to its fixed point. Memory, not
+  correctness, is what is at stake.
+- Gains depend on structure (symmetry, regular composition); an unstructured model can
+  get larger. Report the diagram size, and fall back to the explicit engine.
+- Check: the explicit partition from `refine_fast` agrees on all test models
+  (differential test), and symbolic partitions export as Level 1 certificates.
+
+### 4c. Fluid and mean-field limits
+
+Already available for PEPA (`fluid_model`, `fluid_drift`): one ODE per local
+derivative, after Hillston (QEST 2005). As populations grow, the scaled CTMC converges to
+the ODE on finite time horizons (Kurtz's theorem).
+
+- **Sound:** no verdict. The ODE is a limit, so its answers are estimates for any finite
+  population, and say nothing about equivalence of individual states.
+- Next: report an error estimate alongside the trajectory, for example a
+  second-order (linear noise) correction or a comparison against SSA runs, and state the
+  population size and horizon the estimate is for.
+- Fluid limits for single components remain open (section 3).
+- Equivalences at the fluid level (lumping the ODE itself, as in the constrained lumping
+  of Leguizamon-Robayo et al., 2024) are a separate notion and must be named as such.
+
+### 4d. Statistical model checking
+
+Answer quantitative questions by simulation, with explicit confidence: Gillespie SSA
+already exists. Add sequential stopping rules (Younes & Simmons, CAV 2002) and
+Chernoff–Hoeffding bounds.
+
+- **Sound:** no `Holds`/`Violated`. Answers are `Unknown(p)` or an interval with its
+  confidence level, which fits the planned confidence-aware verdicts (section 3).
+- A simulated trace that violates a safety property is a genuine counterexample, and can
+  be reported as `Violated` with the trace as its witness.
+
+### 4e. Reinforcement learning as a witness finder
+
+Learned state representations approximate bisimulation metrics (Ferns, Panangaden &
+Precup, UAI 2004; Gelada et al., *DeepMDP*, ICML 2019; Zhang et al., *Deep Bisimulation
+for Control*, ICLR 2021). Use learning only to **guide search**, never to decide:
+
+- train a Spoiler policy that picks moves likely to refute equivalence in the game, or
+  that proposes candidate distinguishing formulas;
+- every witness it finds is re-checked exactly (`Formula::holds`, `CausalFormula::holds`),
+  as all "differs" answers already are.
+- **Sound:** **differs**, after the re-check. **Not sound:** "same". A learned partition
+  or a failed search proves nothing, and checking a learned partition as a certificate
+  needs the full state space again. When the search finds nothing, answer `Unknown`.
+- A learned abstraction can still order the exact search (which pairs to explore first).
+  That changes speed, not verdicts.
+- Causal RL (interventions as actions) relates to section 2b, not to scaling.
+
+### 4f. Quantum algorithms (exploratory)
+
+Recorded so the trade-off is explicit, not planned as a backend.
+
+- Search (Grover): a quadratic speedup to find a reachable bad state or a refuting
+  move. On `2ⁿ` states that is still `2ⁿᐟ²`: exponential.
+- Partition refinement is P-complete and no exponential quantum speedup for it is known.
+  History-preserving bisimulation is DEXPTIME-complete (section 2a), far beyond what
+  quantum computers are believed to solve efficiently.
+- Linear systems (HHL, Harrow, Hassidim & Lloyd, PRL 2009) for steady states: the
+  speedup needs sparse, well-conditioned systems, quantum input, and readout of
+  expectation values only. Classical "dequantized" algorithms (Tang, STOC 2019) have
+  removed several claimed speedups of this kind.
+- Hardware: no fault-tolerant devices of useful size exist yet.
+- **Sound:** a witness found by quantum search would be re-checked classically like any
+  other, so "differs" would stay sound. Nothing else.
+- Revisit if a problem the library needs is shown to have a super-polynomial quantum
+  speedup that survives dequantization.
+
+### Order
+
+1. 4a (compositional minimisation): proved already, exact, largest gain for PEPA.
+2. 4b (MTBDD), with differential tests against the explicit engine.
+3. 4c and 4d: error estimates and stopping rules, reported as estimates.
+4. 4e as an optional witness finder behind a feature flag.
+5. 4f stays a note.
