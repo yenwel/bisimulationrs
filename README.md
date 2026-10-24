@@ -107,6 +107,7 @@ Other ways to stream:
 | how differently do two models behave, seen through a count? | bisimulation distance (`bisim_distance`, op `distance`) | exact up to a reported error bound; 0 exactly for bisimilar states | needs both models; explores reachable state pairs |
 | is the system within tolerance of the plan? | (ε, δ)-bisimulation (`min_epsilon`, op `epsdelta`) | bounds time-bounded reachability (Prop. 3 of the paper) | the bound is loose and grows with the horizon |
 | how far apart are two *logged* systems? | distance from samples (`SampleDistance`, op `stream_distance`, sessions) | converges as 1/√transitions | needs very many transitions (≈10⁶ for ±0.07 on 4 states) |
+| how far apart are two models too large for the exact method? | learned bisimulation distance, Deep Bisimulation for Control style (`learn_metric`) | none: an estimate; within about 0.01 of the exact value where both were computed | training time grows like 1/(1 − γ); needs state features |
 | do two sensor series evolve alike? | DSA (`dsa`, op `dsa`) | invariant to rotations of the sensor coordinates | compares fitted linear dynamics; not a bisimulation |
 
 ## What is verified, and how
@@ -193,6 +194,7 @@ given.
 - † Calo, Jonsson, Neu, Schwartz, Segovia-Aguas, *Distances for Markov chains from sample streams* (NeurIPS 2025, arXiv:2505.18005): https://arxiv.org/abs/2505.18005
 - † Spork, Baier, Katoen, Piribauer, Quatmann, *A Spectrum of Approximate Probabilistic Bisimulations* (CONCUR 2024, arXiv:2407.07584): https://arxiv.org/abs/2407.07584
 - † Spork, Baier, Katoen, Klüppelholz, Piribauer, *Approximate Probabilistic Bisimulation for Continuous-Time Markov Chains* (CAV 2025, LNCS 15932, arXiv:2505.15587): https://arxiv.org/abs/2505.15587
+- † Zhang, McAllister, Calandra, Gal, Levine, *Learning Invariant Representations for Reinforcement Learning without Reconstruction* (Deep Bisimulation for Control, ICLR 2021, arXiv:2006.10742): https://arxiv.org/abs/2006.10742
 - † Castro, Kastner, Panangaden, Rowland, *MICo: Improved representations via sampling-based state similarity for Markov decision processes* (NeurIPS 2021, arXiv:2106.08229): https://arxiv.org/abs/2106.08229
 - † Ostrow, Eisen, Kozachkov, Fiete, *Beyond Geometry: Comparing the Temporal Structure of Computation in Neural Circuits with Dynamical Similarity Analysis* (NeurIPS 2023, arXiv:2306.10168): https://arxiv.org/abs/2306.10168
 - Altschuler, Weed, Rigollet, *Near-linear time approximation algorithms for optimal transport via Sinkhorn iteration* (NeurIPS 2017): the rounding step used by the Sinkhorn solver

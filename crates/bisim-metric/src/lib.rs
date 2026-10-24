@@ -12,6 +12,9 @@
 //!   for small dense chains.
 //! - [`dsa`]: dynamical similarity analysis of continuous sensor series
 //!   (Ostrow et al., NeurIPS 2023); not a bisimulation.
+//! - [`learned`]: a learned bisimulation distance (Deep Bisimulation for
+//!   Control style): a neural embedding trained by temporal differences;
+//!   estimates only.
 //! - [`linalg`], [`flow`]: the small dense linear algebra and network-flow
 //!   solvers the methods share.
 
@@ -19,6 +22,7 @@ pub mod dsa;
 pub mod epsdelta;
 pub mod flow;
 pub mod kantorovich;
+pub mod learned;
 pub mod linalg;
 pub mod samples;
 pub mod svi;
@@ -32,5 +36,6 @@ pub use kantorovich::{
     Chain, Distance, MAX_METRIC_PAIRS, MetricError, MetricOptions, PairContribution,
     bisim_distance, common_rate, discount, distance, normalise, uniformise,
 };
+pub use learned::{LearnOptions, LearnedMetric, Mlp, learn_metric};
 pub use samples::{MAX_SAMPLE_PAIRS, SampleDistance, StepSizes, occupancy_sample};
 pub use svi::{MAX_SVI_PAIRS, SviOptions, distance_svi};

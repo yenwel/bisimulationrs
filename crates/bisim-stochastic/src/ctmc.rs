@@ -90,7 +90,11 @@ impl Ctmc {
     /// uniformisation with Poisson weights truncated at total mass `1 − ε`.
     ///
     /// Long horizons are split into slices with `Λ·h ≤ 20` so the Poisson
-    /// weights never underflow.
+    /// weights never underflow. Every slice applies the same deterministic
+    /// map, so once a slice returns its input unchanged (bit for bit), all
+    /// later slices would too, and the loop stops there with the same
+    /// result. A chain that has settled thus costs no more for longer
+    /// horizons.
     pub fn transient(&self, p0: &[f64], t: f64, epsilon: f64) -> Vec<f64> {
         assert_eq!(p0.len(), self.num_states());
         assert!(t >= 0.0, "time must be non-negative");
@@ -99,7 +103,11 @@ impl Ctmc {
         let h = t / slices as f64;
         let mut p = p0.to_vec();
         for _ in 0..slices {
-            p = self.transient_slice(&p, lambda, h, epsilon / slices as f64);
+            let next = self.transient_slice(&p, lambda, h, epsilon / slices as f64);
+            if next == p {
+                break;
+            }
+            p = next;
         }
         p
     }

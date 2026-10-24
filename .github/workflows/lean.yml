@@ -1,0 +1,28 @@
+name: Lean proofs
+
+# Builds the Lean 4 proofs in lean/ (and so checks every theorem) on GitHub's
+# machines. The Mathlib cache is downloaded there, not locally.
+on:
+  push:
+    branches: [ "master" ]
+    paths: [ "lean/**", ".github/workflows/lean.yml" ]
+  pull_request:
+    branches: [ "master" ]
+    paths: [ "lean/**", ".github/workflows/lean.yml" ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build and check the proofs
+      uses: leanprover/lean-action@v1
+      with:
+        lake-package-directory: lean
+        use-mathlib-cache: true
+    - name: No sorry
+      run: |
+        if grep -rn --include='*.lean' '\bsorry\b' lean/Bisim lean/Bisim.lean; then
+          echo "A proof is left as sorry." && exit 1
+        fi

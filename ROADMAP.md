@@ -183,6 +183,7 @@ model whenever given) and which become estimates. An estimate is never reported 
 | Symbolic engine (MTBDD) | memory for structured state spaces | all, when exact | open (section 3) |
 | Fluid and mean-field limits | the whole state space, for large populations | none; approximations with limit guarantees | done for PEPA (`fluid_model`), no error bound |
 | Statistical model checking | the whole state space | none; confidence-bounded estimates | SSA exists, no stopping rules |
+| Learned bisimulation metric (deep RL) | the space of state pairs | none; estimates | done (`learn_metric`): within about 0.01 of the exact distance on the beds where both were computed |
 | RL as a witness finder | search effort for refutations | **differs** only, after re-checking the witness | not started |
 | Quantum algorithms | at most quadratic search | not applicable today | exploratory only |
 
@@ -256,6 +257,22 @@ for Control*, ICLR 2021). Use learning only to **guide search**, never to decide
 - A learned abstraction can still order the exact search (which pairs to explore first).
   That changes speed, not verdicts.
 - Causal RL (interventions as actions) relates to section 2b, not to scaling.
+
+### 4e′. Learned bisimulation metric (done, 24/10/2026)
+
+`bisim_metric::learn_metric` trains a small neural network so that ℓ1 distances between
+state embeddings approximate the bisimulation distance. The objective follows Deep
+Bisimulation for Control (Zhang et al., ICLR 2021). Since the model is known, it uses
+exact transport between the successor distributions, which DBC replaces by a learned
+Gaussian model.
+- **Measured:** 0.120 vs 0.122 and 0.129 vs 0.126 (exact) on the permaculture beds. On
+  beds with 1.7 million state pairs it gave 0.143 in 36 s, against an exact 0.134 that took
+  8.4 minutes.
+- **Training length:** the number of steps needed grows like 1/(1 − γ), and too short a
+  training overestimated by 2.5×. The default step count follows that rule.
+- **Sound:** nothing; estimates only, never `Holds` or `Violated`.
+- **Open:** a sample-only variant (model-free), and features for PEPA models
+  generated automatically.
 
 ### 4f. Quantum algorithms (exploratory)
 

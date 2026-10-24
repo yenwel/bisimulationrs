@@ -135,7 +135,13 @@ pub fn transport(a: &[f64], b: &[f64], cost: &[Vec<f64>]) -> (f64, Vec<(usize, u
     }
     let mut remaining = ta.min(tb);
     let nodes = m + n + 2;
-    while remaining > EPS * ta.max(1.0) {
+    // Each augmentation saturates a supply, a demand or a residual edge, so
+    // a correct run needs far fewer rounds than this; the cap (and the path
+    // length check below) only guards against rounding making a negative
+    // cycle, where the shortest-path tree would loop.
+    let mut rounds = 0;
+    while remaining > EPS * ta.max(1.0) && rounds < 4 * (m * n + m + n) + 16 {
+        rounds += 1;
         // Bellman–Ford shortest path in the residual graph.
         let mut dist = vec![f64::INFINITY; nodes];
         let mut via = vec![usize::MAX; nodes];
@@ -164,10 +170,16 @@ pub fn transport(a: &[f64], b: &[f64], cost: &[Vec<f64>]) -> (f64, Vec<(usize, u
         }
         let mut push = remaining;
         let mut v = sink;
-        while v != source {
+        let mut length = 0;
+        while v != source && length <= nodes {
             let e = via[v];
             push = push.min(net.edges[e].1);
             v = net.edges[e ^ 1].0;
+            length += 1;
+        }
+        if v != source || push <= EPS {
+            // A cycle in the tree (rounding) or nothing left to push.
+            break;
         }
         let mut v = sink;
         while v != source {
