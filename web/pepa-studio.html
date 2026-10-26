@@ -58,6 +58,7 @@
 }
 
 * { box-sizing: border-box; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 html, body { height: 100%; }
 body {
   background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.5;
@@ -74,6 +75,18 @@ header.bar p { margin: 0; color: var(--muted); max-width: 70ch; }
 
 .workbench { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 12px; flex: 1; min-height: 0; }
 @media (max-width: 900px) { .workbench { grid-template-columns: minmax(0, 1fr); } }
+/* Wide screens: the page fits the window and each pane scrolls on its own,
+   so the model stays in view while the results scroll. */
+@media (min-width: 901px) {
+  .app { height: 100vh; height: 100dvh; min-height: 0; }
+  .workbench { min-height: 0; }
+  .pane { overflow: hidden; }
+  .view { overflow: auto; }
+  /* In a scrolling column, items keep their height instead of shrinking. */
+  .view > * { flex-shrink: 0; }
+  #view-tutorial { overflow: hidden; }
+  #view-tutorial > * { flex-shrink: 1; }
+}
 .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .pane-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .label { font-family: var(--font-display); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); }
@@ -133,6 +146,7 @@ input[type="number"] { width: 6.5em; font-variant-numeric: tabular-nums; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 4px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th { position: sticky; top: 0; background: var(--panel); font-family: var(--font-display); font-weight: 600; font-size: 12px; letter-spacing: 0.04em; color: var(--ink-2); }
+td.wrap { white-space: normal; overflow-wrap: anywhere; min-width: 14ch; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 tr.selected td { background: var(--accent-soft); }
 
@@ -149,6 +163,12 @@ tr.selected td { background: var(--accent-soft); }
 .chart .series path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .endlabel { font-size: 12px; fill: var(--ink-2); font-family: var(--font-body); }
 .chart .cross { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 3 3; }
+/* Charts are drawn in a 640-unit viewBox and scaled to the width: on a
+   phone that halves the text, so the text grows to stay readable. */
+@media (max-width: 560px) {
+  .chart .axis text { font-size: 19px; }
+  .chart .endlabel { font-size: 20px; }
+}
 .tooltip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 10px rgb(0 0 0 / 0.12); min-width: 150px; }
 .tooltip .row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
 .tooltip .sw { width: 10px; height: 2px; border-radius: 1px; display: inline-block; }
@@ -184,6 +204,7 @@ input[type="text"].stage { width: 9em; }
 .verdict-banner.off { border-color: var(--bad); background: var(--bad-soft); }
 .verdict-banner.on { border-color: var(--ok); background: var(--ok-soft); }
 .verdict-banner p { margin: 0; }
+.stale { opacity: 0.45; transition: opacity 0.15s; }
 .fit-box { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
 .stream-grid { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .stream-script { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; width: 100%; min-height: 220px; box-sizing: border-box; resize: vertical; background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; tab-size: 2; }
@@ -220,14 +241,66 @@ input[type="text"].stage { width: 9em; }
 .tut .ex details p { color: var(--ink-2); }
 .tut .ex .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .tut .ref { color: var(--muted); font-size: 12px; }
+/* Tutorial wizard: one step at a time. */
+.tut .tut-step[hidden] { display: none; }
+.tut h2 { margin-top: 4px; }
+.tut-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; position: sticky; top: 0; background: var(--panel); padding: 4px 0 6px; z-index: 1; }
+.tut-nav select { max-width: 100%; }
+.tut-nav.bottom { position: static; border-top: 1px solid var(--line); margin-top: 16px; padding-top: 10px; }
+.tut-nav .spacer { flex: 1; }
+.tut-bar { height: 3px; background: var(--line); border-radius: 2px; margin-bottom: 8px; }
+.tut-bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.2s; }
+.tut .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.tut ol, .tut ul { padding-left: 1.4em; }
+/* Tutorial diagrams. */
+.viz { width: 100%; height: auto; display: block; margin: 8px 0; overflow: visible; }
+/* On a phone the diagrams keep a readable size and scroll sideways. */
+.viz-wrap { overflow-x: auto; }
+@media (max-width: 560px) { .viz-wrap .viz { width: 520px; max-width: none; } }
+.viz text { font-family: var(--font-body); font-size: 13px; fill: var(--ink); }
+/* Centre labels unless the drawing says otherwise (a CSS text-anchor would
+   override the SVG attribute). */
+.viz text:not([text-anchor]) { text-anchor: middle; }
+.viz text.title { font-family: var(--font-display); font-weight: 600; text-anchor: start; fill: var(--ink-2); }
+.viz .elabel { font-size: 12px; fill: var(--ink-2); }
+.viz .node circle, .viz .num circle, .viz .box rect { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.5; }
+.viz .node.start circle { stroke: var(--accent); stroke-width: 3; }
+.viz .num.base circle { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 2.5; }
+.viz .num.inf circle { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2.5; }
+.viz .box.good rect { fill: var(--ok-soft); stroke: var(--ok); }
+.viz .edge { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+.viz .edge.good { stroke: var(--ok); }
+.viz .edge.co { stroke: var(--accent); }
+.viz .arrowhead { fill: var(--muted); }
+.viz .arrowhead.good { fill: var(--ok); }
+.viz .arrowhead.co { fill: var(--accent); }
+.viz .pair { stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.viz .axis { stroke: var(--line); stroke-width: 1.5; }
+.viz .series { fill: none; stroke-width: 2.5; }
+.viz .series.good { stroke: var(--ok); }
+.viz .series.co { stroke: var(--accent); }
+.viz .slabel { font-size: 12px; }
+.viz .slabel.good { fill: var(--ok); }
+.viz .slabel.co { fill: var(--accent); }
+.viz.tree line { stroke: var(--muted); stroke-width: 1.4; }
+.viz.tree line.more { stroke-dasharray: 3 4; }
+.viz.tree circle { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.5; transition: fill 0.2s; }
+.viz.tree g.visited circle { fill: var(--accent-soft); stroke: var(--accent); }
+.viz.tree g.current circle { fill: var(--accent); }
+.viz.tree g.current text { fill: var(--on-accent); }
+.viz.tree text.order { font-family: var(--font-mono); font-size: 12px; }
+.viz.tree text.level { font-size: 11px; fill: var(--muted); text-anchor: start; }
+.viz .node text { font-size: 12px; }
 .tut table.cmp { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; width: 100%; }
 .tut table.cmp th, .tut table.cmp td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; color: var(--ink-2); }
 .tut table.cmp th { background: var(--sunken); color: var(--ink); font-weight: 600; }
+.tut table.cmp th, .tut table.cmp td { white-space: normal; position: static; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 
 <div class="app">
+  <p class="sr-only" id="editor-keys">Tab inserts four spaces. Press Escape, then Tab, to leave the editor; Shift+Tab always leaves.</p>
   <header class="bar">
     <h1>PEPA <span>Studio</span></h1>
     <p>Write a PEPA model, see its state space and lumped Markov chain, follow occupancy over time, and compare two models by bisimulation.</p>
@@ -375,7 +448,7 @@ input[type="text"].stage { width: 9em; }
       </div>
 
       <div class="view" id="view-stream" role="tabpanel" aria-labelledby="tab-stream" hidden>
-        <p class="hint">Compare a running system with its plan while it runs. The plan is known in advance; the bed is observed one event at a time. After each event the comparison is updated in place (only what the new event touches is recomputed), and the verdict says either <b>holds so far</b> (no difference yet, but more can still happen) or a <b>final</b> difference: an observed step that a state declared finished can never answer. A difference is final only then, so a late observation never causes a false alarm.</p>
+        <p class="hint">Compare a running system with its plan while it runs. The plan is known in advance; the bed is observed one event at a time. After each event the comparison is updated in place (only what the new event touches is recomputed), and the verdict says either <b>holds so far</b> (no difference yet, but more can still happen) or a <b>final</b> difference: an observed step that a state declared finished can never answer. A difference is final only then, so a late observation never causes a false alarm. This tab does not use Model A: the plan and the observations are both in the event script below.</p>
         <div class="obs-controls">
           <label class="hint" for="stream-scenario">Scenario</label>
           <select id="stream-scenario"></select>
@@ -397,77 +470,226 @@ input[type="text"].stage { width: 9em; }
 
       <div class="view" id="view-tutorial" role="tabpanel" aria-labelledby="tab-tutorial" hidden>
         <article class="tut" id="tut-article">
-          <h2>Theoretical basis and exercises</h2>
-          <p class="lede">Graduate-level notes on what this tool computes, with runnable exercises. Each exercise loads models into the editors and opens the right tab; numbers quoted in the answers were produced by the same engine that runs in your browser. Notation: <code>⟨a⟩φ</code> “can do <code>a</code>, then <code>φ</code>”; <code>⟨a⟩=r φ</code> “does <code>a</code> at total rate <code>r</code> into states where <code>φ</code> holds”; <code>tt</code> true.</p>
+          <nav class="tut-nav" aria-label="Tutorial steps">
+            <button class="btn" type="button" data-tut-go="-1">← Back</button>
+            <label class="sr-only" for="tut-jump">Go to step</label>
+            <select id="tut-jump"></select>
+            <span class="hint" id="tut-progress"></span>
+            <button class="btn primary" type="button" data-tut-go="1">Next →</button>
+          </nav>
+          <div class="tut-bar" aria-hidden="true"><i id="tut-bar"></i></div>
 
-          <h3>0. Before you start: induction and coinduction</h3>
-          <p>This section needs only school maths. The rest of the tutorial uses two proof methods that mirror each other, and it helps to see them side by side first.</p>
-          <p><strong>Induction: for things that end.</strong> To prove that <code>1 + 2 + … + n = n(n+1)/2</code> for every <code>n</code>, you check the start (<code>n = 1</code>: both sides are 1) and the step (if it holds for <code>n</code>, adding <code>n+1</code> keeps it true for <code>n+1</code>). Like a row of dominoes, the first one falls and each one knocks over the next, so all of them fall. Induction works because every case is reached from the start in finitely many steps: a sum, a list, a season’s harvest record. It describes the <em>smallest</em> set you can build with the rules.</p>
-          <p><strong>Coinduction: for things that never end.</strong> A clock that ticks forever, the decimal <code>0.333…</code>, a garden harvested every week: none of these has a last step, so there is nothing to build up to. Instead you start from a claim (“these two behave the same”) and check that the claim is <em>self-consistent</em>: whatever one side does next, the other can do the same, and afterwards you are again in a situation covered by the claim. If the check never fails, it never will, however long you watch. A claim that passes this check is a <em>bisimulation</em>, and “bisimilar” means: there is <em>some</em> such claim relating the two. It describes the <em>largest</em> relation that survives the check.</p>
-          <div class="block">Clock A:  A0 —tick→ A1 —tock→ A0
-Clock B:  B0 —tick→ B1 —tock→ B2 —tick→ B3 —tock→ B0
-Claim:    A0 ~ B0, A1 ~ B1, A0 ~ B2, A1 ~ B3
-Check:    every tick or tock on one side is matched on the other,
-          and the matched states are again in the claim.  ✓</div>
-          <p>The two clocks have different numbers of states, yet they can never be told apart. Induction on time would only prove “equal for the first <code>n</code> ticks” for each <code>n</code> separately. The coinductive claim settles all of time in one finite check.</p>
-          <table class="cmp">
-            <tr><th></th><th>Induction</th><th>Coinduction</th></tr>
-            <tr><td>Good for</td><td>finite things: numbers, lists, a finished harvest</td><td>never-ending behaviour: clocks, cycles, continuous harvest</td></tr>
-            <tr><td>Proof shape</td><td>base case + step</td><td>a claim + a check that it survives one step</td></tr>
-            <tr><td>Builds</td><td>the smallest set closed under the rules</td><td>the largest relation consistent with the steps</td></tr>
-            <tr><td>Fixpoint</td><td>least fixpoint: start with nothing, add</td><td>greatest fixpoint: start with everything, remove</td></tr>
-            <tr><td>In this tool</td><td>a distinguishing formula (§2, §4): a finite reason two systems differ</td><td>bisimilarity (§1); partition refinement (§3) starts with all states equal and splits only what is refuted</td></tr>
-          </table>
-          <p>The two methods meet in this tool: a <em>difference</em> is always finite (for systems with finitely many steps per state, some finite sequence of steps shows it, §2), so it is shown by an inductively built formula. <em>Sameness</em> of never-ending behaviour can only be shown coinductively. That is why comparing a continuously harvested system with its plan (§11), which has no last day, is a coinductive question.</p>
+          <section class="tut-step" data-title="Welcome">
+            <h2>Welcome</h2>
+            <p class="lede">This tutorial starts from school maths and builds up step by step. Each step has a picture, and many have a button that loads an example into the tool so you can see it for yourself.</p>
+            <p>The Studio answers one question in many forms: <strong>do two systems behave the same?</strong> A system can be a garden bed, a herd, a farm plan or a machine. “Behave the same” sounds simple, but it gets interesting when the behaviour never ends (a garden is harvested every week, year after year) and when things happen by chance and at different speeds.</p>
+            <ol>
+              <li>Steps 2–7 explain the ideas with pictures: states and arrows, comparing behaviour, induction and coinduction, and finding a difference.</li>
+              <li>Steps 8–13 add chance and time, and show what each tab of the Studio does.</li>
+              <li>Steps 14–15 are the precise mathematics, for readers who want it.</li>
+              <li>Step 16 has exercises with answers; step 17 lists the sources.</li>
+            </ol>
+            <p>Use <b>Next</b> and <b>Back</b>, or jump with the step list above.</p>
+          </section>
 
-          <h3>1. Behaviour as coalgebra; bisimulation as greatest fixpoint</h3>
-          <p>A transition system with weights <code>W</code> (here: positive reals, or booleans if rates are ignored) is a coalgebra <code>S: X → P<sub>fin</sub>(A × W × X)</code> for the finite-powerset-with-weights functor: a state is described by <em>observing</em> one layer of behaviour. Algebra folds structure into a value; coalgebra unfolds behaviour out of a state — the dual, and the right shape for “what can this system do next?”.</p>
-          <p>Bisimulation is the coinductive notion of sameness: a relation <code>R ⊆ X × X</code> such that matched states take <code>R</code>-matching steps with equal weights. Let <code>F</code> be the functional</p>
-          <div class="block">F(R) = { (s,t) | for every a: the a-steps of s and t pair up
-                       into R-matching steps with equal weight }.</div>
-          <p><code>F</code> is monotone on the complete lattice of binary relations, so it has a greatest fixpoint by Knaster–Tarski; bisimilarity <code>~ = νF</code> is the largest symmetric fixpoint. This gives both proof principles:</p>
-          <div class="block">Coinduction (to prove s ~ t): exhibit any R with (s,t) ∈ F(R).
-Induction  (to refute s ~ t): exhibit a modal formula true of s only (§2).</div>
+          <section class="tut-step" data-title="Systems: states and arrows">
+            <h2>Systems are states and arrows</h2>
+            <p>Describe a system by the situations it can be in (<em>states</em>) and the events that move it from one to the next (<em>arrows</em>, labelled with the event). A tomato plant grows, flowers, fruits, is picked again and again, and rests over winter:</p>
+            <div class="viz-wrap"><svg class="viz" viewBox="0 0 560 185" role="img" aria-label="A plant cycle: growing, flowering, fruiting with a repeated harvest, resting, and back to growing">
+              <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+              <g class="node start"><circle cx="70" cy="85" r="30"/><text x="70" y="89">Growing</text></g>
+              <g class="node"><circle cx="210" cy="85" r="34"/><text x="210" y="89">Flowering</text></g>
+              <g class="node"><circle cx="350" cy="85" r="30"/><text x="350" y="89">Fruiting</text></g>
+              <g class="node"><circle cx="490" cy="85" r="30"/><text x="490" y="89">Resting</text></g>
+              <path class="edge" d="M101,85 L178,85" marker-end="url(#arr)"/><text class="elabel" x="140" y="77">flower</text>
+              <path class="edge" d="M241,85 L318,85" marker-end="url(#arr)"/><text class="elabel" x="280" y="77">set fruit</text>
+              <path class="edge" d="M381,85 L458,85" marker-end="url(#arr)"/><text class="elabel" x="420" y="77">die back</text>
+              <path class="edge" d="M335,57 C320,15 380,15 365,57" marker-end="url(#arr)"/><text class="elabel" x="350" y="22">harvest</text>
+              <path class="edge" d="M490,116 C490,165 70,165 70,116" marker-end="url(#arr)"/><text class="elabel" x="280" y="180">spring: grow again</text>
+            </svg></div>
+            <p>The arrow from <em>Fruiting</em> back to itself is the harvest: it can happen again and again. The long arrow back to <em>Growing</em> makes the whole thing a cycle. Nothing here ever “ends”, and that is exactly the kind of behaviour this tool is built for.</p>
+            <p>In the Studio such systems are written in a small language called PEPA (step 10). The <b>State space</b> tab draws the states and arrows of whatever model is in the editor.</p>
+            <div class="row"><button class="btn" data-example="Herd health" data-view="space">Load the herd example and show its states</button></div>
+          </section>
 
-          <h3>2. Modal logic and the Hennessy–Milner theorem</h3>
-          <p>Hennessy–Milner logic observes one step at a time: <code>φ ::= tt | ¬φ | φ ∧ φ | ⟨a⟩φ | ⟨a⟩=r φ</code>. Its semantics is a monotone predicate lifting of <code>S</code>: <code>s ⊨ ⟨a⟩φ</code> iff some <code>a</code>-step lands in a state satisfying <code>φ</code>.</p>
-          <div class="thm"><b>Theorem (Hennessy–Milner, image-finite case).</b> For systems where each state has finitely many steps: <code>s ~ t</code> iff <code>s</code> and <code>t</code> satisfy exactly the same formulas. Depth-<code>k</code> formulas characterise <code>~<sub>k</sub></code>, the <code>k</code>-step approximation of bisimilarity.</div>
-          <p>Every failed comparison in this tool returns such a formula — a <em>distinguishing</em> witness, extracted from the refinement history (§4). Its nesting depth is the depth of the modal formula, i.e. how many steps deep the models must look before they differ.</p>
+          <section class="tut-step" data-title="Same behaviour?">
+            <h2>When do two systems behave the same?</h2>
+            <p>Two clocks: A has two states, B has four. Both go tick, tock, tick, tock, for ever. Are they “the same”? Counting states says no. Watching them says yes: whatever one does, the other can do too.</p>
+            <div class="viz-wrap"><svg class="viz" viewBox="0 0 560 232" role="img" aria-label="Clock A with two states and clock B with four states; dashed lines pair the matching states">
+              <defs><marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+              <text class="title" x="20" y="22">Clock A</text>
+              <g class="node start"><circle cx="150" cy="55" r="20"/><text x="150" y="59">A0</text></g>
+              <g class="node"><circle cx="330" cy="55" r="20"/><text x="330" y="59">A1</text></g>
+              <path class="edge" d="M172,48 L307,48" marker-end="url(#arr2)"/><text class="elabel" x="240" y="40">tick</text>
+              <path class="edge" d="M308,62 L173,62" marker-end="url(#arr2)"/><text class="elabel" x="240" y="78">tock</text>
+              <text class="title" x="20" y="132">Clock B</text>
+              <g class="node start"><circle cx="90" cy="165" r="20"/><text x="90" y="169">B0</text></g>
+              <g class="node"><circle cx="210" cy="165" r="20"/><text x="210" y="169">B1</text></g>
+              <g class="node"><circle cx="330" cy="165" r="20"/><text x="330" y="169">B2</text></g>
+              <g class="node"><circle cx="450" cy="165" r="20"/><text x="450" y="169">B3</text></g>
+              <path class="edge" d="M112,165 L187,165" marker-end="url(#arr2)"/><text class="elabel" x="150" y="157">tick</text>
+              <path class="edge" d="M232,165 L307,165" marker-end="url(#arr2)"/><text class="elabel" x="270" y="157">tock</text>
+              <path class="edge" d="M352,165 L427,165" marker-end="url(#arr2)"/><text class="elabel" x="390" y="157">tick</text>
+              <path class="edge" d="M450,186 C450,212 90,212 90,186" marker-end="url(#arr2)"/><text class="elabel" x="270" y="228">tock</text>
+              <line class="pair" x1="150" y1="76" x2="90" y2="144"/><line class="pair" x1="150" y1="76" x2="330" y2="144"/>
+              <line class="pair" x1="330" y1="76" x2="210" y2="144"/><line class="pair" x1="330" y1="76" x2="450" y2="144"/>
+            </svg></div>
+            <p>The dashed lines are a <strong>claim</strong>: A0 behaves like B0 and B2, and A1 behaves like B1 and B3. Check the claim one step at a time. From a paired couple, whatever step one side takes, the other side can take the same step, and the two new states are paired again. It never fails, so it will never fail however long the clocks run. A claim that passes this check is called a <strong>bisimulation</strong>, and the two systems are <strong>bisimilar</strong>.</p>
+            <p>You can see the check as a game between a <em>challenger</em>, who tries to show a difference, and a <em>defender</em>, who answers every move with the same move on the other side. The systems are bisimilar exactly when the defender can keep answering for ever.</p>
+          </section>
 
-          <h3>3. Partition refinement</h3>
-          <p>Signature refinement computes <code>~</code> from above: start with the indiscrete partition <code>P<sub>0</sub> = {X}</code>, and split blocks until stable.</p>
-          <div class="block">signature_P(s)(a)(B) = Σ { w | s —a,w→ s′ ∈ S, s′ ∈ B }
-P′ = { states with equal signatures under P }.</div>
-          <p><code>~<sub>k</sub></code> is exactly the partition produced after <code>k</code> rounds, bisimilarity is the fixpoint, and on a finite system the sequence stabilises (each strict round at least doubles the block count of some state). The fast backend here is worklist-based (CoPaR-style): only predecessors of split blocks recompute signatures, cached per state, and the largest part of a split keeps its identity — Hopcroft’s bound, giving <code>O(m log n)</code> on <code>m</code> transitions and <code>n</code> states in practice.</p>
+          <section class="tut-step" data-title="Induction: climbing up">
+            <h2>Induction: proving things that are built up step by step</h2>
+            <p>The natural numbers are built from 0 by “add one”, again and again. To prove that something holds for <em>every</em> number, induction needs two things:</p>
+            <ol><li><b>Base case:</b> it holds for 0.</li><li><b>Step:</b> if it holds for <code>n</code>, it holds for <code>n + 1</code>.</li></ol>
+            <div class="viz-wrap"><svg class="viz" viewBox="0 0 560 120" role="img" aria-label="Induction: arrows go from 0 to 1, 1 to 2, and so on, starting at the base case 0">
+              <defs><marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead good"/></marker></defs>
+              <line class="axis" x1="30" y1="80" x2="540" y2="80"/>
+              <g class="num base"><circle cx="50" cy="80" r="13"/><text x="50" y="84">0</text></g>
+              <g class="num"><circle cx="120" cy="80" r="13"/><text x="120" y="84">1</text></g>
+              <g class="num"><circle cx="190" cy="80" r="13"/><text x="190" y="84">2</text></g>
+              <g class="num"><circle cx="260" cy="80" r="13"/><text x="260" y="84">3</text></g>
+              <g class="num"><circle cx="330" cy="80" r="13"/><text x="330" y="84">4</text></g>
+              <g class="num"><circle cx="400" cy="80" r="13"/><text x="400" y="84">5</text></g>
+              <g class="num"><circle cx="470" cy="80" r="13"/><text x="470" y="84">6</text></g>
+              <text class="elabel" x="525" y="84">…</text>
+              <path class="edge good" d="M58,68 C70,40 100,40 112,68" marker-end="url(#arr3)"/>
+              <path class="edge good" d="M128,68 C140,40 170,40 182,68" marker-end="url(#arr3)"/>
+              <path class="edge good" d="M198,68 C210,40 240,40 252,68" marker-end="url(#arr3)"/>
+              <path class="edge good" d="M268,68 C280,40 310,40 322,68" marker-end="url(#arr3)"/>
+              <path class="edge good" d="M338,68 C350,40 380,40 392,68" marker-end="url(#arr3)"/>
+              <path class="edge good" d="M408,68 C420,40 450,40 462,68" marker-end="url(#arr3)"/>
+              <text class="elabel" x="50" y="112">base case</text>
+              <text class="elabel" x="260" y="30">step: n → n + 1</text>
+            </svg></div>
+            <p>Like a row of dominoes: the first falls (base case), and each one knocks over the next (step), so all of them fall. It works because every number is reached from 0 in finitely many steps.</p>
+            <div class="block">Claim: 1 + 2 + … + n = n(n + 1) / 2
+Base case (n = 1):  1 = 1·2/2 ✓
+Step: if it holds for n, add n + 1 to both sides:
+      n(n + 1)/2 + (n + 1) = (n + 1)(n + 2)/2 ✓</div>
+            <p>Induction suits things that are <em>finished</em>: a number, a list, a season’s harvest record. In this tool it appears whenever the answer is “these two systems differ”: a difference always shows up after finitely many steps, so it can be written down as a finite piece of evidence (step 7).</p>
+          </section>
 
-          <h3>4. Distinguishing formulas as witnesses</h3>
-          <p>When the refinement history separates <code>s</code> from <code>t</code> at round <code>k</code>, the block labels around the split assemble into a formula of depth <code>k</code> true of <code>s</code>, false of <code>t</code>: each round contributes one modal operator per separating action, with rate conditions <code>⟨a⟩=r</code> when the split came from unequal weights. The formula is a certificate: you can check it by hand against the two transition lists, independent of the algorithm.</p>
+          <section class="tut-step" data-title="Coinduction: never-ending things">
+            <h2>Coinduction: proving things about behaviour that never ends</h2>
+            <p>Induction <em>builds</em> numbers upward with “add one”, starting from 0. Coinduction runs the other way: it <em>takes things apart</em> with “take one away”, asking only “is there anything left, and if so, what remains after one step?”. Taking one away from 3 gives 2, then 1, then 0, and the unfolding stops. But it also allows a value that never runs out: <strong>∞</strong>, for which taking one away gives ∞ again. Numbers seen this way, including ∞, are the <em>conatural</em> numbers.</p>
+            <div class="viz-wrap"><svg class="viz" viewBox="0 0 560 130" role="img" aria-label="Coinduction: arrows go from each number to the one below it; infinity points to itself and never reaches zero">
+              <defs><marker id="arr4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead co"/></marker></defs>
+              <line class="axis" x1="30" y1="60" x2="540" y2="60"/>
+              <g class="num"><circle cx="50" cy="60" r="13"/><text x="50" y="64">0</text></g>
+              <g class="num"><circle cx="120" cy="60" r="13"/><text x="120" y="64">1</text></g>
+              <g class="num"><circle cx="190" cy="60" r="13"/><text x="190" y="64">2</text></g>
+              <g class="num"><circle cx="260" cy="60" r="13"/><text x="260" y="64">3</text></g>
+              <g class="num"><circle cx="330" cy="60" r="13"/><text x="330" y="64">4</text></g>
+              <text class="elabel" x="400" y="64">…</text>
+              <g class="num inf"><circle cx="480" cy="60" r="16"/><text x="480" y="65">∞</text></g>
+              <path class="edge co" d="M112,72 C100,100 70,100 58,72" marker-end="url(#arr4)"/>
+              <path class="edge co" d="M182,72 C170,100 140,100 128,72" marker-end="url(#arr4)"/>
+              <path class="edge co" d="M252,72 C240,100 210,100 198,72" marker-end="url(#arr4)"/>
+              <path class="edge co" d="M322,72 C310,100 280,100 268,72" marker-end="url(#arr4)"/>
+              <path class="edge co" d="M470,75 C455,120 505,120 490,75" marker-end="url(#arr4)"/>
+              <text class="elabel" x="190" y="122">unfold: n + 1 → n</text>
+              <text class="elabel" x="480" y="30">∞ → ∞: never reaches 0</text>
+            </svg></div>
+            <p>Never-ending behaviour is like ∞: a clock that ticks for ever, the decimal 0.333…, a garden harvested every week. There is no last step and no base case to start from. So coinduction does not build up from a beginning. It starts from a <strong>claim</strong> (“these two behave the same”) and checks that one step later you are back inside the claim (step 3). If that holds, the claim holds for ever.</p>
+            <p>The same mirror shows up in how the two kinds of proof find their answer. In the illustration below, induction starts with nothing proved and adds facts until nothing new follows. Coinduction starts by believing every pairing and removes the ones that are caught out, until the rest survives. Both stop at a <em>fixed point</em>: induction at the smallest one, coinduction at the largest one.</p>
+            <div class="viz-wrap"><svg class="viz" viewBox="0 0 560 200" role="img" aria-label="Illustration: induction grows from nothing up to its fixed point; coinduction shrinks from everything down to its fixed point">
+              <line class="axis" x1="60" y1="170" x2="530" y2="170"/><line class="axis" x1="60" y1="20" x2="60" y2="170"/>
+              <text class="elabel" x="300" y="195">rounds</text>
+              <text class="elabel" x="16" y="30" text-anchor="start">all</text><text class="elabel" x="16" y="172" text-anchor="start">none</text>
+              <polyline class="series good" points="60,170 120,170 120,130 180,130 180,105 240,105 240,92 300,92 300,92 530,92"/>
+              <polyline class="series co" points="60,22 120,22 120,48 180,48 180,64 240,64 240,72 300,72 300,72 530,72"/>
+              <text class="slabel good" x="530" y="108" text-anchor="end">induction: adds until nothing new</text>
+              <text class="slabel co" x="530" y="62" text-anchor="end">coinduction: removes until nothing fails</text>
+            </svg></div>
+            <p>The Studio’s comparison works exactly like the falling line: it begins by treating all states as equal and splits groups only when one can do something the other cannot (step 14 has the details).</p>
+            <table class="cmp">
+              <tr><th></th><th>Induction</th><th>Coinduction</th></tr>
+              <tr><td>Good for</td><td>finished things: numbers, lists, a harvest record</td><td>never-ending behaviour: clocks, cycles, continuous harvest</td></tr>
+              <tr><td>Direction</td><td>builds up: 0 → 1 → 2 → …</td><td>takes apart: … → 2 → 1 → 0, and ∞ → ∞</td></tr>
+              <tr><td>Proof shape</td><td>base case + step</td><td>a claim + a check that it survives one step</td></tr>
+              <tr><td>Fixed point</td><td>smallest: start with nothing, add</td><td>largest: start with everything, remove</td></tr>
+              <tr><td>In this tool</td><td>evidence that two systems differ</td><td>the verdict that two systems are the same</td></tr>
+            </table>
+          </section>
 
-          <h3>5. Simulation: the one-sided preorder</h3>
-          <p>Simulation drops the “match back” clause: <code>s ≼ t</code> when <code>t</code> can mimic every step of <code>s</code> (into states simulating the targets). It is again <code>νF</code> for a monotone functional, but on arbitrary — not necessarily symmetric — relations, so it is a preorder, and the induced equivalence is <em>mutual simulation</em>. Simulation is a closure operator (reflexive, monotone, idempotent); its modal characterisation uses only the positive fragment (no negation): <code>s ≼ t</code> iff <code>t</code> satisfies every formula <code>s</code> does, for negation-free <code>φ</code>. Note <code>mutual simulation ⊋ bisimilarity</code> can hold strictly, which is why this tool reports both.</p>
+          <section class="tut-step" data-title="Depth-first and breadth-first">
+            <h2>Depth first and breadth first: a picture of the two</h2>
+            <p>Every system unfolds into a tree of possible runs: the root is the start, and each branch is a step it can take. Two ways to walk a tree give a helpful picture of induction and coinduction. It is a picture, not a theorem: proofs can be organised in many ways. What matters is that induction needs the bottom of the tree and coinduction does not.</p>
+            <div class="row">
+              <button class="btn" data-tree="dfs">Walk depth first (induction)</button>
+              <button class="btn" data-tree="bfs">Walk breadth first (coinduction)</button>
+            </div>
+            <div class="viz-wrap"><svg class="viz tree" id="tree-svg" viewBox="0 0 560 270" role="img" aria-label="A tree of runs, walked depth first or breadth first"></svg></div>
+            <p id="tree-caption" class="hint" aria-live="polite">Pick a walk to see the order in which the tree is visited.</p>
+            <p><strong>Depth first, finishing the children before the parent</strong> is how induction proves a fact about a finished tree. It goes down a branch to the leaves (the base cases), proves them, and climbs back up: a node is done once everything below it is done. This needs leaves at the bottom.</p>
+            <p><strong>Breadth first, one level at a time</strong> fits never-ending behaviour, where the tree has no bottom (the dotted lines). After checking level <code>k</code> you know that the two systems agree for their first <code>k</code> steps. The Studio’s comparison grows in exactly this way, round by round. If the systems differ, the difference appears at some finite level, so the walk finds it. If they never differ, every level agrees, and the claim from step 3 settles all levels at once.</p>
+          </section>
 
-          <h3>6. The bisimulation game</h3>
-          <p>Equivalently, bisimilarity has a game characterisation (Stirling): Spoiler and Duplicator move tokens on the two models; from <code>(s,t)</code>, Spoiler picks a step on either side, Duplicator must answer with a matching step; a matching pair moves the tokens to the targets. Duplicator wins infinite plays (the coinductive clause), Spoiler wins by reaching unmatched positions.</p>
-          <div class="thm"><b>Theorem.</b> <code>s ~ t</code> iff Duplicator has a winning strategy from <code>(s,t)</code>.</div>
-          <p>The game solver in this repository explores pairs on demand from the initial pair — it can refute bisimilarity by finding a shallow Spoiler win without refining the whole product system. Budgets turn the algorithm into a sound three-way answer: proven within budget (<code>Holds</code>), refuted (<code>Violated</code>, with a modal witness), or <code>Unknown</code>/<code>HoldsUpTo</code> when the budget stops the search — never an unsound verdict.</p>
+          <section class="tut-step" data-title="Evidence of a difference">
+            <h2>When they differ: a formula as evidence</h2>
+            <p>When two systems are <em>not</em> the same, the Studio does not just say “no”. It gives evidence: a short formula that is true for one system and false for the other. Read it left to right:</p>
+            <div class="block">⟨disease⟩⟨healing⟩tt   “can get the disease, and then can heal”
+¬⟨b⟩tt                “cannot do b right now”
+⟨start⟩=2 tt          “starts at a total rate of 2”</div>
+            <p><code>⟨a⟩</code> means “can do <code>a</code>, and then…”, <code>tt</code> means “true”, and <code>¬</code> means “not”. Because a difference always shows up after finitely many steps (step 4), there is always such a formula, and you can check it by hand against the two models.</p>
+            <div class="row"><button class="btn" data-example="Herd health" data-preset="No recovery (vs herd)" data-view="compare">Compare a herd with and without recovery</button></div>
+            <p>On the <b>Compare</b> tab, click a verdict to highlight the states where its formula holds.</p>
+          </section>
 
-          <h3>7. From branching to probabilities: lumping, uniformisation</h3>
-          <p>Forget action labels, sum weights per state pair: a rate-labelled system yields a CTMC with generator <code>Q</code> (<code>q<sub>st</sub></code> = total rate <code>s→t</code>, <code>q<sub>ss</sub></code> = −exit rate). The tool’s “lumped” view is the quotient by the coarsest <em>ordinary lumpable</em> partition: for all <code>s,s′</code> in a block <code>B</code> and <code>t,t′</code> in a block <code>C</code>, the rates into <code>C</code> agree. Ordinary lumpability is precisely the condition that the quotient chain is again Markovian — and, as the tests assert, it coincides with Markovian bisimulation, the weight-sensitive refinement of §3.</p>
-          <div class="thm"><b>Uniformisation (Jensen).</b> For <code>Λ ≥ max<sub>s</sub> exit(s)</code>, <code>P = I + Q/Λ</code> is stochastic (self-loops allowed) and <code>p(t) = Σ<sub>k</sub> e<sup>−Λt</sup>(Λt)<sup>k</sup>/k! · p<sub>0</sub>P<sup>k</sup></code>. Same generator, same marginals; the series is truncated at machine precision.</div>
-          <p>Steady state is the left kernel <code>πQ = 0</code> — computed by power iteration on <code>P</code>, which preserves stationary distributions because uniformisation is a Poisson embedding.</p>
+          <section class="tut-step" data-title="Chance and time: rates">
+            <h2>Adding chance and time: rates</h2>
+            <p>Real systems do not just “can” or “cannot”: things happen at some speed, by chance. Each arrow gets a <strong>rate</strong>: how often it happens per unit of time. A rate of 0.1 per day means about once every 10 days on average (1 / 0.1).</p>
+            <div class="viz-wrap"><svg class="viz" viewBox="0 0 560 150" role="img" aria-label="A sick animal heals at rate 0.1 per day or dies at rate 0.01 per day">
+              <defs><marker id="arr5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+              <g class="node start"><circle cx="280" cy="75" r="30"/><text x="280" y="79">Sick</text></g>
+              <g class="node"><circle cx="90" cy="75" r="30"/><text x="90" y="79">Healthy</text></g>
+              <g class="node"><circle cx="470" cy="75" r="30"/><text x="470" y="79">Dead</text></g>
+              <path class="edge" d="M249,75 L122,75" marker-end="url(#arr5)"/><text class="elabel" x="186" y="66">heal: 0.1 / day</text>
+              <path class="edge" d="M311,75 L438,75" marker-end="url(#arr5)"/><text class="elabel" x="374" y="66">die: 0.01 / day</text>
+              <text class="elabel" x="186" y="100">chance 0.1 / 0.11 ≈ 91 %</text>
+              <text class="elabel" x="374" y="100">chance 0.01 / 0.11 ≈ 9 %</text>
+              <text class="elabel" x="280" y="135">waits on average 1 / (0.1 + 0.01) ≈ 9 days</text>
+            </svg></div>
+            <p>When several things can happen, they race: whichever happens first wins. The chance of each is its share of the total rate, and the time until something happens is, on average, one over the total. With rates, “the same behaviour” also means “at the same speeds”, and the Studio checks that too (<em>Markovian</em> bisimulation).</p>
+            <p>The <b>Over time</b> tab shows the expected number of animals in each state as time passes, computed from these rates.</p>
+            <div class="row"><button class="btn" data-example="Herd health" data-view="time">Show the herd over time</button></div>
+          </section>
 
-          <h3>8. PEPA: SOS for stochastic process algebras</h3>
-          <p>PEPA (Hillston) builds large systems compositionally; structural operational semantics derives the coalgebra from the term. The cooperative law is the analytic core. With apparent rate <code>ra<sub>P</sub>(a)</code> = sum of <code>a</code>-rates offered by <code>P</code>, two active offers <code>(a,r<sub>1</sub>).P′</code>, <code>(a,r<sub>2</sub>).Q′</code> under <code>⟨a⟩</code>-cooperation run at</p>
-          <div class="block">rate = (r₁ / ra_P) · (r₂ / ra_Q) · min(ra_P, ra_Q).</div>
-          <p>The fractions split the joint activity between the partners; the slower side sets the pace (a rendezvous, not a product). A passive partner (rate <code>⊤</code>, the algebraic top) is no bottleneck: the law reduces to the active side’s rate. This is why the vet in the herd example does not throttle recovery. Functional rates <code>(a, f(#P)).P′</code> evaluate <code>f</code> in the global state; for <code>f</code> linear in population counts the derived rates are exactly Gillespie’s mass-action propensities, so the same model yields a Markov chain and an ODE with no manual translation. The algebra refuses mixed active/passive offers in one array — its apparent rate would be undefined — which is precisely the situation functional rates replace.</p>
+          <section class="tut-step" data-title="Merging look-alikes: lumping">
+            <h2>Merging states that behave alike: lumping</h2>
+            <p>Three animals, one of them sick. Whether it is the first, second or third animal does not change what can happen next: all three situations behave the same. So they can be merged into one state, “one sick animal”, without losing anything you can observe.</p>
+            <div class="viz-wrap"><svg class="viz" viewBox="0 0 560 150" role="img" aria-label="Three states with a different sick animal merge into one state: one sick">
+              <defs><marker id="arr6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+              <g class="box"><rect x="30" y="15" width="150" height="34" rx="6"/><text x="105" y="37">sick, ok, ok</text></g>
+              <g class="box"><rect x="30" y="58" width="150" height="34" rx="6"/><text x="105" y="80">ok, sick, ok</text></g>
+              <g class="box"><rect x="30" y="101" width="150" height="34" rx="6"/><text x="105" y="123">ok, ok, sick</text></g>
+              <path class="edge" d="M195,75 L345,75" marker-end="url(#arr6)"/><text class="elabel" x="270" y="66">same behaviour: merge</text>
+              <g class="box good"><rect x="360" y="52" width="170" height="46" rx="6"/><text x="445" y="80">one sick animal</text></g>
+            </svg></div>
+            <p>This is called <strong>lumping</strong>, and it is what the comparison of step 3 is for in practice: it finds every group of states that behave the same and merges them. A model with many identical animals or plants can shrink enormously, and every answer about the lumped model is exactly the same as for the original.</p>
+            <p>On the <b>State space</b> tab, switch between <b>Full</b> and <b>Lumped</b>. In the full graph, states with the same colour merge.</p>
+            <div class="row"><button class="btn" data-tut="cycleA">Load a model that lumps well</button></div>
+          </section>
 
-          <h3>9. Fluid limits</h3>
-          <p>For populations of size <code>n</code>, the law of large numbers for CTMCs (Kurtz) says the occupancy process <code>X<sup>n</sup>(t)/n</code> converges on finite horizons to the deterministic solution of <code>ẋ = drift(x)</code>, where each move contributes rate(x) × stoichiometry. The fluid engine reuses the SOS derivation in floats to assemble this drift and integrates with RK4 (the tests verify 4th-order convergence: halving the step cuts the error sixteenfold). Fluid answers scale where enumeration cannot, and conservation of totals falls out of the stoichiometry.</p>
+          <section class="tut-step" data-title="Building from parts: PEPA">
+            <h2>Building big systems from small parts</h2>
+            <p>Writing down every state of a herd by hand is hopeless. Instead, describe each part on its own and say how the parts work together. The Studio uses <strong>PEPA</strong> for this:</p>
+            <div class="block">Healthy = (disease, 0.02).Sick;          an animal's own life
+Sick    = (healing, 0.1).Healthy;
+Vet     = (healing, infty).Vet;          the vet takes part in every healing
+Healthy[3] &lt;healing&gt; Vet                 three animals, working with the vet on "healing"</div>
+            <ul>
+              <li><code>(a, r).P</code>: do <code>a</code> at rate <code>r</code>, then behave as <code>P</code>.</li>
+              <li><code>P + Q</code>: whichever happens first.</li>
+              <li><code>P &lt;a&gt; Q</code>: <code>P</code> and <code>Q</code> run side by side and must do <code>a</code> together; <code>P || Q</code>: side by side, independently.</li>
+              <li><code>P[3]</code>: three copies.</li>
+            </ul>
+            <p>The Studio works out all the states and arrows from this description. The <b>Components</b> tab shows each part on its own, and the <b>State space</b> tab shows the whole. Comparing parts is safe: if two parts behave the same, then swapping one for the other in a bigger system does not change how the whole behaves. This is proved in Lean in this project.</p>
+          </section>
 
-          <h3>10. Approximate bisimulation</h3>
-          <p>Measured rates are never exactly equal, and exact refinement shatters under noise. <code>(ε, δ)</code>-bisimulation for CTMCs (Spork, Baier, Katoen, Klüppelholz, Piribauer, CAV 2025) relaxes exact equality with an additive tolerance <code>ε</code> on transition probabilities and a multiplicative one <code>δ</code> on exit rates, and the authors bound time- and reward-bounded reachability for states related that way. This tool’s check is in that spirit but is <em>not</em> that definition: class-sum rates match within <code>ε</code> (absolute, in rate units) and exit rates within <code>δ</code> (relative), and the paper’s reachability bounds are not proved for it. The checker reports an approximate verdict with a behavioural distance instead of forcing equality — a quasi-lumpability check on a pair of states, with tolerance grouping documented as non-transitive (a perturbation bound, not a congruence).</p>
-
-          <h3>11. Why compare systems while they run: continuous harvest</h3>
+          <section class="tut-step" data-title="Comparing while it runs">
+          <h2>Comparing while it runs: continuous harvest (§11)</h2>
           <p><strong>The motivation.</strong> Classical agriculture judges a crop or a herd by its yield at harvest or culling, so during growth the system is effectively unmonitored: a deviation shows up only when it can no longer be corrected. In permaculture the harvest is continuous — fruit, leaves and eggs keep coming, and the system may never “end” — so there is no terminal yield to wait for. The comparison with a plan or a benchmark has to be made <em>while the system is running</em>, on behaviour rather than on a final number.</p>
           <p><strong>Why bisimulation fits.</strong> Bisimulation compares what a system can do, step by step, and it is coinductive (§1): a cyclic or never-ending behaviour is compared without being unrolled to an end. That matches a food forest or a laying flock, whose behaviour is a cycle (flower, fruit, harvest, regrow) and not a path to one outcome. Three things follow.</p>
           <div class="block">1. Structure: does the real system have the same possible behaviours as the plan
@@ -486,10 +708,24 @@ P′ = { states with equal signatures under P }.</div>
                                                               • same possible behaviour? (witness)
                                                               • how far apart? (distance)
                                                               • same long-run harvest rate?</div>
-          <p><strong>What exists today, and what does not.</strong> In the library: the prefix checker, the approximate check with a distance, steady-state analysis, and rate learning from event logs. In this tool: the Observations tab compares dated counts with the plan and fits rates by likelihood, and the Compare tab checks two models exactly. Not yet connected: event logs as an input, the fitted model compared with the plan through the distance and witness, and a long-run throughput comparison.</p>
+          <p><strong>Where to find it here.</strong> The <b>Observations</b> tab compares dated counts with the plan and fits rates; the <b>Stream</b> tab replays a plan and a bed observed event by event, with “holds so far” until a difference is final; the <b>Compare</b> tab checks two models exactly and says how far apart they are. Not yet connected in this tool: raw event logs as an input, and a long-run throughput comparison.</p>
           <p><strong>A caution about causes.</strong> This comparison is association, not causation. “Plot B is behind plan” can be read straight off the verdict; “the guild is working” cannot, because soil, weather and management differ between plots. Causal claims need a design behind them (a control plot, matched units) or a model whose structure you trust. Fitted rates from a handful of dated counts rarely tell competing mechanisms apart.</p>
 
-          <h3>12. What-if and attribution; event dependencies</h3>
+          </section>
+
+          <section class="tut-step" data-title="How far apart?">
+            <h2>How far apart? Distances and tolerances</h2>
+            <p>Measured rates are never exactly equal, so two real systems are almost never <em>exactly</em> the same. A yes/no answer is then too blunt. The <b>Compare</b> tab adds two softer answers under “How far apart?”.</p>
+            <ul>
+              <li><strong>A distance between 0 and 1.</strong> Run both models side by side in the way that makes a chosen count (say, healthy plants) look as alike as possible, and average how far apart the count still is, with the far future counting less (the half-life). 0 means they cannot be told apart through that count. The table lists the situations that add most to the distance.</li>
+              <li><strong>A tolerance.</strong> Are the chances of each next step within ε of each other, and the speeds within a factor e<sup>δ</sup>? If so, the tool guarantees how much any outcome can differ by a given time. The guarantee is safe but often loose.</li>
+            </ul>
+            <p>Both are estimates of <em>how much</em> two systems differ; neither replaces the exact verdict, which the Compare tab shows above them.</p>
+            <div class="row"><button class="btn" data-example="Permaculture guild" data-preset="Monoculture (vs guild)" data-view="compare">Compare a guild bed with a monoculture</button></div>
+          </section>
+
+          <section class="tut-step" data-title="What-if and causes">
+          <h2>What-if, attribution and causes (§12)</h2>
           <p>Next to bisimulation, “causality” can mean two different things, and both are available. Neither is a claim about causes on the farm: they describe how a model behaves. The first changes rates and asks what follows; the second compares which steps depend on which.</p>
           <p><strong>Available (API) — what-if and attribution on the model.</strong> A PEPA model is a mechanism: setting a rate and re-deriving the chain asks “what does the model do if this rate were different?”. Two operations use it.</p>
           <div class="block">what-if    set rates, compare the expected count of a state with the baseline
@@ -500,7 +736,67 @@ attribute  plan and fitted model differ in several rates, and so does the outcom
           <p><strong>Available (API) — causality between events (history-preserving bisimulation).</strong> Ordinary bisimulation (§1) treats a run as a sequence of actions. History-preserving bisimulation also tracks <em>which step enabled which</em>. Each component of a PEPA model becomes a token moving through its local states (a safe Petri net), and a step depends on an earlier one when it moves a component that the earlier step moved. Two systems can perform the same actions at the same rates and still differ here. Two workers who water and weed independently give the same Markov chain as one farmer who does both, but for the farmer every task waits on the previous one. Likewise, with one vet each healing depends on the previous healing, which a second vet removes. The answer comes with a witness such as <code>⟨water ← ∅⟩⟨weed ← ∅⟩tt</code>: “a watering that depends on nothing earlier, then a weeding that depends on nothing earlier either” holds for the two workers, not for the farmer. In <code>⟨a ← 1,2⟩</code>, the numbers are the earlier steps the <code>a</code> depends on.</p>
           <p>The method is decidable for finite safe nets (Vogler, ICALP 1991), and DEXPTIME-complete there (Jategaonkar and Meyer, TCS 1996). The finite form of the game used here, which groups past steps by the tokens that depend on them, is this library’s own construction. It is proved in Lean to decide the same thing as the definition, and the code is tested against the definition on random nets. Rates are left out. A model with functional rates (<code>#Name</code>) is refused, because such a rate can switch a step off, which the net cannot express. I found no source that combines causal bisimulation with rates, so a stochastic version would be new work. JSON operation <code>causal</code>; example <code>causal_farm</code>.</p>
 
-          <h3>Exercises</h3>
+          </section>
+
+          <section class="tut-step" data-title="For the curious I: the formal story">
+            <h2>For the curious I: the formal story</h2>
+            <p class="lede">The precise mathematics behind steps 2–7, at graduate level. Notation: <code>⟨a⟩φ</code> “can do <code>a</code>, then <code>φ</code>”; <code>⟨a⟩=r φ</code> “does <code>a</code> at total rate <code>r</code> into states where <code>φ</code> holds”; <code>tt</code> true.</p>
+          <h3>§1. Behaviour as coalgebra; bisimulation as greatest fixpoint</h3>
+          <p>A transition system with weights <code>W</code> (here: positive reals, or booleans if rates are ignored) is a coalgebra <code>S: X → P<sub>fin</sub>(A × W × X)</code> for the finite-powerset-with-weights functor: a state is described by <em>observing</em> one layer of behaviour. Algebra folds structure into a value; coalgebra unfolds behaviour out of a state — the dual, and the right shape for “what can this system do next?”.</p>
+          <p>Bisimulation is the coinductive notion of sameness: a relation <code>R ⊆ X × X</code> such that matched states take <code>R</code>-matching steps with equal weights. Let <code>F</code> be the functional</p>
+          <div class="block">F(R) = { (s,t) | for every a: the a-steps of s and t pair up
+                       into R-matching steps with equal weight }.</div>
+          <p><code>F</code> is monotone on the complete lattice of binary relations, so it has a greatest fixpoint by Knaster–Tarski; bisimilarity <code>~ = νF</code> is the largest symmetric fixpoint. This gives both proof principles:</p>
+          <div class="block">Coinduction (to prove s ~ t): exhibit any R with (s,t) ∈ F(R).
+Induction  (to refute s ~ t): exhibit a modal formula true of s only (§2).</div>
+
+          <h3>§2. Modal logic and the Hennessy–Milner theorem</h3>
+          <p>Hennessy–Milner logic observes one step at a time: <code>φ ::= tt | ¬φ | φ ∧ φ | ⟨a⟩φ | ⟨a⟩=r φ</code>. Its semantics is a monotone predicate lifting of <code>S</code>: <code>s ⊨ ⟨a⟩φ</code> iff some <code>a</code>-step lands in a state satisfying <code>φ</code>.</p>
+          <div class="thm"><b>Theorem (Hennessy–Milner, image-finite case).</b> For systems where each state has finitely many steps: <code>s ~ t</code> iff <code>s</code> and <code>t</code> satisfy exactly the same formulas. Depth-<code>k</code> formulas characterise <code>~<sub>k</sub></code>, the <code>k</code>-step approximation of bisimilarity.</div>
+          <p>Every failed comparison in this tool returns such a formula — a <em>distinguishing</em> witness, extracted from the refinement history (§4). Its nesting depth is the depth of the modal formula, i.e. how many steps deep the models must look before they differ.</p>
+
+          <h3>§3. Partition refinement</h3>
+          <p>Signature refinement computes <code>~</code> from above: start with the indiscrete partition <code>P<sub>0</sub> = {X}</code>, and split blocks until stable.</p>
+          <div class="block">signature_P(s)(a)(B) = Σ { w | s —a,w→ s′ ∈ S, s′ ∈ B }
+P′ = { states with equal signatures under P }.</div>
+          <p><code>~<sub>k</sub></code> is exactly the partition produced after <code>k</code> rounds, bisimilarity is the fixpoint, and on a finite system the sequence stabilises (each strict round at least doubles the block count of some state). The fast backend here is worklist-based (CoPaR-style): only predecessors of split blocks recompute signatures, cached per state, and the largest part of a split keeps its identity — Hopcroft’s bound, giving <code>O(m log n)</code> on <code>m</code> transitions and <code>n</code> states in practice.</p>
+
+          <h3>§4. Distinguishing formulas as witnesses</h3>
+          <p>When the refinement history separates <code>s</code> from <code>t</code> at round <code>k</code>, the block labels around the split assemble into a formula of depth <code>k</code> true of <code>s</code>, false of <code>t</code>: each round contributes one modal operator per separating action, with rate conditions <code>⟨a⟩=r</code> when the split came from unequal weights. The formula is a certificate: you can check it by hand against the two transition lists, independent of the algorithm.</p>
+
+          <h3>§5. Simulation: the one-sided preorder</h3>
+          <p>Simulation drops the “match back” clause: <code>s ≼ t</code> when <code>t</code> can mimic every step of <code>s</code> (into states simulating the targets). It is again <code>νF</code> for a monotone functional, but on arbitrary — not necessarily symmetric — relations, so it is a preorder, and the induced equivalence is <em>mutual simulation</em>. Simulation is a closure operator (reflexive, monotone, idempotent); its modal characterisation uses only the positive fragment (no negation): <code>s ≼ t</code> iff <code>t</code> satisfies every formula <code>s</code> does, for negation-free <code>φ</code>. Note <code>mutual simulation ⊋ bisimilarity</code> can hold strictly, which is why this tool reports both.</p>
+
+          <h3>§6. The bisimulation game</h3>
+          <p>Equivalently, bisimilarity has a game characterisation (Stirling): Spoiler and Duplicator move tokens on the two models; from <code>(s,t)</code>, Spoiler picks a step on either side, Duplicator must answer with a matching step; a matching pair moves the tokens to the targets. Duplicator wins infinite plays (the coinductive clause), Spoiler wins by reaching unmatched positions.</p>
+          <div class="thm"><b>Theorem.</b> <code>s ~ t</code> iff Duplicator has a winning strategy from <code>(s,t)</code>.</div>
+          <p>The game solver in this repository explores pairs on demand from the initial pair — it can refute bisimilarity by finding a shallow Spoiler win without refining the whole product system. Budgets turn the algorithm into a sound three-way answer: proven within budget (<code>Holds</code>), refuted (<code>Violated</code>, with a modal witness), or <code>Unknown</code>/<code>HoldsUpTo</code> when the budget stops the search — never an unsound verdict.</p>
+
+          </section>
+
+          <section class="tut-step" data-title="For the curious II: chance, PEPA, limits">
+            <h2>For the curious II: chance, PEPA and limits</h2>
+            <p class="lede">The precise mathematics behind steps 8–12.</p>
+          <h3>§7. From branching to probabilities: lumping, uniformisation</h3>
+          <p>Forget action labels, sum weights per state pair: a rate-labelled system yields a CTMC with generator <code>Q</code> (<code>q<sub>st</sub></code> = total rate <code>s→t</code>, <code>q<sub>ss</sub></code> = −exit rate). The tool’s “lumped” view is the quotient by the coarsest <em>ordinary lumpable</em> partition: for all <code>s,s′</code> in a block <code>B</code> and <code>t,t′</code> in a block <code>C</code>, the rates into <code>C</code> agree. Ordinary lumpability is precisely the condition that the quotient chain is again Markovian — and, as the tests assert, it coincides with Markovian bisimulation, the weight-sensitive refinement of §3.</p>
+          <div class="thm"><b>Uniformisation (Jensen).</b> For <code>Λ ≥ max<sub>s</sub> exit(s)</code>, <code>P = I + Q/Λ</code> is stochastic (self-loops allowed) and <code>p(t) = Σ<sub>k</sub> e<sup>−Λt</sup>(Λt)<sup>k</sup>/k! · p<sub>0</sub>P<sup>k</sup></code>. Same generator, same marginals; the series is truncated at machine precision.</div>
+          <p>Steady state is the left kernel <code>πQ = 0</code> — computed by power iteration on <code>P</code>, which preserves stationary distributions because uniformisation is a Poisson embedding.</p>
+
+          <h3>§8. PEPA: SOS for stochastic process algebras</h3>
+          <p>PEPA (Hillston) builds large systems compositionally; structural operational semantics derives the coalgebra from the term. The cooperative law is the analytic core. With apparent rate <code>ra<sub>P</sub>(a)</code> = sum of <code>a</code>-rates offered by <code>P</code>, two active offers <code>(a,r<sub>1</sub>).P′</code>, <code>(a,r<sub>2</sub>).Q′</code> under <code>⟨a⟩</code>-cooperation run at</p>
+          <div class="block">rate = (r₁ / ra_P) · (r₂ / ra_Q) · min(ra_P, ra_Q).</div>
+          <p>The fractions split the joint activity between the partners; the slower side sets the pace (a rendezvous, not a product). A passive partner (rate <code>⊤</code>, the algebraic top) is no bottleneck: the law reduces to the active side’s rate. This is why the vet in the herd example does not throttle recovery. Functional rates <code>(a, f(#P)).P′</code> evaluate <code>f</code> in the global state; for <code>f</code> linear in population counts the derived rates are exactly Gillespie’s mass-action propensities, so the same model yields a Markov chain and an ODE with no manual translation. The algebra refuses mixed active/passive offers in one array — its apparent rate would be undefined — which is precisely the situation functional rates replace.</p>
+
+          <h3>§9. Fluid limits</h3>
+          <p>For populations of size <code>n</code>, the law of large numbers for CTMCs (Kurtz) says the occupancy process <code>X<sup>n</sup>(t)/n</code> converges on finite horizons to the deterministic solution of <code>ẋ = drift(x)</code>, where each move contributes rate(x) × stoichiometry. The fluid engine reuses the SOS derivation in floats to assemble this drift and integrates with RK4 (the tests verify 4th-order convergence: halving the step cuts the error sixteenfold). Fluid answers scale where enumeration cannot, and conservation of totals falls out of the stoichiometry.</p>
+
+          <h3>§10. Approximate bisimulation</h3>
+          <p>Measured rates are never exactly equal, and exact refinement shatters under noise. <code>(ε, δ)</code>-bisimulation for CTMCs (Spork, Baier, Katoen, Klüppelholz, Piribauer, CAV 2025) relaxes exact equality with an additive tolerance <code>ε</code> on transition probabilities and a multiplicative one <code>δ</code> on exit rates, and the authors bound time- and reward-bounded reachability for states related that way. This tool’s check is in that spirit but is <em>not</em> that definition: class-sum rates match within <code>ε</code> (absolute, in rate units) and exit rates within <code>δ</code> (relative), and the paper’s reachability bounds are not proved for it. The checker reports an approximate verdict with a behavioural distance instead of forcing equality — a quasi-lumpability check on a pair of states, with tolerance grouping documented as non-transitive (a perturbation bound, not a congruence).</p>
+
+          </section>
+
+          <section class="tut-step" data-title="Exercises">
+          <h2>Exercises</h2>
           <p class="lede">Each exercise states a claim, loads the models, and asks you to check it in the tool. Answers are folded away; open them after you have tried the claim.</p>
 
           <div class="ex">
@@ -592,7 +888,18 @@ attribute  plan and fitted model differ in several rates, and so does the outcom
             </details>
           </div>
 
+          </section>
+
+          <section class="tut-step" data-title="Sources">
+            <h2>Sources</h2>
           <p class="ref">Background: Sangiorgi, <em>Introduction to Bisimulation and Coinduction</em> (2012), also for §0; Larsen, “Modal specifications” (in Sifakis (ed.), <em>Automatic Verification Methods for Finite State Systems</em>, LNCS 407, 1990); Hillston, <em>A Compositional Approach to Performance Modelling</em> (1996); Baier &amp; Katoen, <em>Principles of Model Checking</em> (2008, ch. 7 and 10); Jensen, “Markoff chains as an aid in the study of Markoff processes” (<em>Scandinavian Actuarial Journal</em>, 1953), the source of uniformisation; Spork, Baier, Katoen, Piribauer, Quatmann, “A Spectrum of Approximate Probabilistic Bisimulations” (CONCUR 2024); Spork, Baier, Katoen, Klüppelholz, Piribauer, “Approximate Probabilistic Bisimulation for Continuous-Time Markov Chains” (CAV 2025); Shapley, “A value for n-person games” (1953); Bruni, Montanari, Sammartino, “Revisiting causality, coalgebraically” (Acta Informatica 52, 2015). The Rust sources behind each claim: <code>bisim-refine</code> (§3–6, 10–11, including <code>stream</code>), <code>bisim-api/attribution</code> (§12), <code>bisim-algebra/pepa</code> (§8–9), <code>bisim-stochastic</code> (§7, 9, 11).</p>
+          </section>
+
+          <nav class="tut-nav bottom" aria-label="Tutorial steps, bottom">
+            <button class="btn" type="button" data-tut-go="-1">← Back</button>
+            <span class="spacer"></span>
+            <button class="btn primary" type="button" data-tut-go="1">Next →</button>
+          </nav>
         </article>
       </div>
     </section>
@@ -605,7 +912,7 @@ attribute  plan and fitted model differ in several rates, and so does the outcom
 
 // ---------- Examples (rates in s⁻¹) ----------
 const EXAMPLES = {
-  "Herd health": `// Three animals; a vet is needed for recovery.
+  "Herd health": `// Three animals; a vet is needed for recovery. Rates are per day.
 r_disease = 0.02;
 r_heal = 0.1;
 r_death = 0.01;
@@ -752,7 +1059,7 @@ const EXAMPLE_OBS = {
     ["17/07/2026", "Vegetative", 6], ["17/07/2026", "Ripe", 1],
   ] },
 };
-const EXAMPLE_UNIT = { "Herd health": "second", "Hillston cycle": "second", "Clients and server": "second", "Tomato bed": "day", "Coral reef": "week", "Antibiotic cycling": "day", "Bass diffusion": "day", "Credit ratings": "day", "Permaculture guild": "week", "Two workers": "day" };
+const EXAMPLE_UNIT = { "Herd health": "day", "Hillston cycle": "second", "Clients and server": "second", "Tomato bed": "day", "Coral reef": "week", "Antibiotic cycling": "day", "Bass diffusion": "day", "Credit ratings": "day", "Permaculture guild": "week", "Two workers": "day" };
 // How far the time view looks, in the example's unit.
 const EXAMPLE_HORIZON = { "Herd health": 100, "Tomato bed": 120, "Coral reef": 104, "Antibiotic cycling": 60, "Bass diffusion": 720, "Credit ratings": 3650, "Permaculture guild": 26, "Two workers": 10 };
 
@@ -863,6 +1170,98 @@ document.getElementById("view-tutorial").addEventListener("click", (e) => {
   if (t.b != null) { runA(); scheduleCompare(); } else schedule();
 });
 
+// ---------- Tutorial wizard ----------
+// One step at a time, with Back/Next, a step list and the step remembered.
+const tutSteps = [...document.querySelectorAll("#tut-article .tut-step")];
+const tutJump = document.getElementById("tut-jump");
+tutJump.innerHTML = tutSteps.map((st, i) => `<option value="${i}">${i + 1}. ${escapeHtml(st.dataset.title)}</option>`).join("");
+let tutStep = 0;
+function showTutStep(i) {
+  tutStep = Math.min(tutSteps.length - 1, Math.max(0, i));
+  tutSteps.forEach((st, k) => (st.hidden = k !== tutStep));
+  tutJump.value = String(tutStep);
+  document.getElementById("tut-progress").textContent = `Step ${tutStep + 1} of ${tutSteps.length}`;
+  document.getElementById("tut-bar").style.width = `${(100 * (tutStep + 1)) / tutSteps.length}%`;
+  document.querySelectorAll("[data-tut-go]").forEach((b) => {
+    const d = +b.dataset.tutGo;
+    b.disabled = d < 0 ? tutStep === 0 : tutStep === tutSteps.length - 1;
+  });
+  document.getElementById("tut-article").scrollTop = 0;
+  store.set("tutStep", String(tutStep));
+  if (tutSteps[tutStep].querySelector("#tree-svg")) drawTree(null);
+}
+tutJump.addEventListener("change", () => showTutStep(+tutJump.value));
+document.getElementById("tut-article").addEventListener("click", (e) => {
+  const go = e.target.closest("[data-tut-go]");
+  if (go) { showTutStep(tutStep + +go.dataset.tutGo); return; }
+  const tree = e.target.closest("[data-tree]");
+  if (tree) { walkTree(tree.dataset.tree); return; }
+  // Buttons that load a built-in example (and preset for B) and open a tab.
+  const ex = e.target.closest("button[data-example]");
+  if (ex) {
+    exampleSel.value = ex.dataset.example;
+    exampleSel.dispatchEvent(new Event("change"));
+    if (ex.dataset.preset) { presetSel.value = ex.dataset.preset; editorB.value = PRESETS_B[ex.dataset.preset]; store.set("b", editorB.value); }
+    setView(ex.dataset.view || "space");
+    if (ex.dataset.preset) scheduleCompare();
+  }
+});
+
+// Depth-first vs breadth-first walk of a run tree (step "Depth-first and
+// breadth-first"): a binary tree of 4 levels, with dotted lines below the
+// leaves for a tree that goes on.
+const TREE_LEVELS = 4;
+function treeNodes() {
+  const nodes = [];
+  for (let l = 0; l < TREE_LEVELS; l++) {
+    const n = 2 ** l;
+    for (let i = 0; i < n; i++) nodes.push({ id: n - 1 + i, level: l, x: 60 + ((i + 0.5) * 480) / n, y: 26 + l * 62 });
+  }
+  return nodes;
+}
+function treeOrder(kind) {
+  if (kind === "bfs") return treeNodes().map((n) => n.id);
+  // Depth first, children before the parent (post-order): leaves first.
+  const out = [];
+  const visit = (id) => { const l = Math.floor(Math.log2(id + 1)); if (l + 1 < TREE_LEVELS) { visit(2 * id + 1); visit(2 * id + 2); } out.push(id); };
+  visit(0);
+  return out;
+}
+let treeTimer = 0;
+function drawTree(kind, upto = -1) {
+  const svg = document.getElementById("tree-svg");
+  if (!svg) return;
+  const nodes = treeNodes(), order = kind ? treeOrder(kind) : [];
+  const rank = new Map(order.map((id, k) => [id, k]));
+  let out = "";
+  for (const n of nodes) {
+    if (n.level + 1 < TREE_LEVELS) {
+      for (const c of [2 * n.id + 1, 2 * n.id + 2]) { const m = nodes[c]; out += `<line x1="${n.x}" y1="${n.y}" x2="${m.x}" y2="${m.y}"/>`; }
+    } else if (kind !== "dfs") {
+      out += `<line class="more" x1="${n.x}" y1="${n.y}" x2="${n.x - 12}" y2="${n.y + 40}"/><line class="more" x1="${n.x}" y1="${n.y}" x2="${n.x + 12}" y2="${n.y + 40}"/>`;
+    }
+  }
+  for (const n of nodes) {
+    const k = rank.get(n.id);
+    const cls = k === undefined || k > upto ? "" : k === upto ? "current visited" : "visited";
+    out += `<g class="${cls}"><circle cx="${n.x}" cy="${n.y}" r="13"/>${k !== undefined && k <= upto ? `<text class="order" x="${n.x}" y="${n.y + 4}">${k + 1}</text>` : ""}</g>`;
+  }
+  if (kind === "bfs") for (let l = 0; l < TREE_LEVELS; l++) out += `<text class="level" x="0" y="${30 + l * 62}">step ${l}</text>`;
+  if (kind === "dfs") out += `<text class="level" x="0" y="${30 + (TREE_LEVELS - 1) * 62}">leaves</text>`;
+  svg.innerHTML = out;
+}
+function walkTree(kind) {
+  clearInterval(treeTimer);
+  const total = treeNodes().length;
+  const caption = document.getElementById("tree-caption");
+  caption.textContent = kind === "dfs"
+    ? "Depth first, children before parents: the leaves (base cases) are done first, and the root, the whole claim, last. It needs the tree to end."
+    : "Breadth first, one level at a time: after level k the two systems are known to agree for k steps. It never needs a bottom, so it suits trees that go on for ever.";
+  let k = 0;
+  drawTree(kind, -1);
+  treeTimer = setInterval(() => { drawTree(kind, k); if (++k >= total) clearInterval(treeTimer); }, 380);
+}
+
 // ---------- Engine (Rust → WebAssembly, JSON in/out) ----------
 let wasm = null;
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -904,6 +1303,7 @@ const seriesColor = (i) => css(`--s${(i % 8) + 1}`);
 
 // ---------- Editor with highlighting ----------
 function escapeHtml(s) { return s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 
 function highlight(src, err) {
   // err: {line, column} (1-based) or null
@@ -943,7 +1343,7 @@ function highlight(src, err) {
 }
 
 function makeEditor(host, initial, onChange) {
-  host.innerHTML = `<div class="gutter" aria-hidden="true"></div><div class="code"><pre aria-hidden="true"></pre><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="${host.id === "editor-a" ? "Model A source" : "Model B source"}" id="${host.id}-text"></textarea></div>`;
+  host.innerHTML = `<div class="gutter" aria-hidden="true"></div><div class="code"><pre aria-hidden="true"></pre><textarea spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="${host.id === "editor-a" ? "Model A source" : "Model B source"}" aria-describedby="editor-keys" id="${host.id}-text"></textarea></div>`;
   const gutter = host.querySelector(".gutter"), pre = host.querySelector("pre"), ta = host.querySelector("textarea");
   let err = null;
   const render = () => {
@@ -956,9 +1356,15 @@ function makeEditor(host, initial, onChange) {
   ta.value = initial;
   ta.addEventListener("input", () => { render(); onChange(ta.value); });
   ta.addEventListener("scroll", sync);
+  // Tab indents, so keyboard users need another way out: Escape releases
+  // the next Tab (or Shift+Tab) to move focus as usual.
+  let release = false;
   ta.addEventListener("keydown", (e) => {
-    if (e.key === "Tab") { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText("    ", s, ta.selectionEnd, "end"); render(); onChange(ta.value); }
+    if (e.key === "Escape") { release = true; return; }
+    if (e.key === "Tab" && !release && !e.shiftKey) { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText("    ", s, ta.selectionEnd, "end"); render(); onChange(ta.value); }
+    if (e.key !== "Shift") release = false;
   });
+  ta.addEventListener("blur", () => { release = false; });
   render();
   return {
     get value() { return ta.value; },
@@ -990,6 +1396,8 @@ function graphStyle() {
       "background-color": css("--panel"), "border-width": 1.5, "border-color": css("--ink-2"),
       label: "data(label)", color: css("--ink"), "font-family": "IBM Plex Mono, ui-monospace, monospace", "font-size": 10,
       "text-wrap": "wrap", "text-max-width": 140, "text-valign": "bottom", "text-margin-y": 5, width: 18, height: 18,
+      // Labels too small to read are hidden until the user zooms in.
+      "min-zoomed-font-size": 7,
       "text-background-color": css("--sunken"), "text-background-opacity": 0.85, "text-background-padding": 2,
     } },
     { selector: "node[color]", style: { "background-color": "data(color)", "border-color": css("--panel"), "border-width": 2 } },
@@ -999,7 +1407,7 @@ function graphStyle() {
     { selector: "edge", style: {
       width: 1.5, "line-color": css("--muted"), "target-arrow-color": css("--muted"), "target-arrow-shape": "triangle",
       "arrow-scale": 0.9, "curve-style": "bezier", label: "data(label)", "font-size": 9.5, color: css("--ink-2"),
-      "font-family": "IBM Plex Mono, ui-monospace, monospace", "text-rotation": "autorotate",
+      "font-family": "IBM Plex Mono, ui-monospace, monospace", "text-rotation": "autorotate", "min-zoomed-font-size": 7,
       "text-background-color": css("--sunken"), "text-background-opacity": 0.9, "text-background-padding": 1,
       "loop-direction": "-45deg", "loop-sweep": "-40deg",
     } },
@@ -1020,12 +1428,38 @@ function drawGraph(id, nodes, edges, opts = {}) {
       ...edges.map((e, i) => ({ data: { id: "e" + i, source: "n" + e.source, target: "n" + e.target, label: e.label } })),
     ],
     style: graphStyle(),
-    layout: { name: "breadthfirst", directed: true, roots: nodes.filter((n) => n.initial).map((n) => "#n" + n.id), spacingFactor: opts.spacing || 1.25, padding: 24, animate: false },
-    wheelSensitivity: 0.3, minZoom: 0.2, maxZoom: 3,
+    layout: graphLayout(nodes, opts),
+    minZoom: 0.2, maxZoom: 3,
   });
+  // A layout computed before the container has its size (hidden tab, first
+  // paint) collapses into a strip; lay out again once it is measured.
+  requestAnimationFrame(() => relayout(cy, nodes, opts));
   if (opts.onTap) cy.on("tap", "node", (ev) => opts.onTap(+ev.target.id().slice(1)));
+  cy.scratch("_drawn", { nodes, opts });
   graphs.set(id, cy);
   return cy;
+}
+
+function graphLayout(nodes, opts) {
+  // `roots` must be one selector string: an array of selectors finds no
+  // root, and every state lands on a single level (one long strip).
+  const roots = nodes.filter((n) => n.initial).map((n) => "#n" + n.id).join(",") || undefined;
+  return { name: "breadthfirst", directed: true, roots, spacingFactor: opts.spacing || 1.25, padding: 24, animate: false };
+}
+
+function relayout(cy, nodes, opts) {
+  if (cy.destroyed() || !cy.container() || cy.container().offsetWidth === 0) return;
+  cy.resize();
+  cy.layout(graphLayout(nodes, opts)).run();
+  cy.fit(undefined, 24);
+}
+
+/** Lay out the graphs of a tab that has just become visible. */
+function relayoutVisible() {
+  for (const cy of graphs.values()) {
+    const host = cy.container();
+    if (host && host.offsetWidth > 0 && cy.scratch("_drawn")) relayout(cy, cy.scratch("_drawn").nodes, cy.scratch("_drawn").opts);
+  }
 }
 
 function restyleGraphs() { for (const cy of graphs.values()) cy.style(graphStyle()); }
@@ -1163,7 +1597,7 @@ function renderTime() {
   const x = (t) => m.l + ((W - m.l - m.r) * t) / horizon, y = (v) => m.t + (H - m.t - m.b) * (1 - v / yTop);
   const fmtTick = (v) => +v.toPrecision(4) + "";
 
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(yLabel)} over time for ${escapeHtml(leafName)}">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeAttr(yLabel)} over time for ${escapeHtml(leafName)}">`;
   svg += `<g class="grid">${yt.map((v) => `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/>`).join("")}</g>`;
   svg += `<line class="baseline" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
   svg += `<g class="axis">${yt.map((v) => `<text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${fmtTick(v)}</text>`).join("")}`;
@@ -1281,7 +1715,23 @@ function diagList(errs) {
 
 const fmtNum = (x, digits = 4) => x == null ? "—" : Math.abs(x) < 1e-4 && x !== 0 ? x.toExponential(1) : (+x.toFixed(digits)).toString();
 
+// The distance and tolerance checks can take a moment on larger models:
+// dim the previous answer, let the browser paint that, then compute.
+let distancePending = false;
 function runDistance() {
+  if (distancePending) return;
+  distancePending = true;
+  const panels = [document.getElementById("dist-result"), document.getElementById("epsdelta-result")];
+  panels.forEach((el) => { el.classList.add("stale"); el.setAttribute("aria-busy", "true"); });
+  requestAnimationFrame(() => setTimeout(() => {
+    try { computeDistance(); } finally {
+      distancePending = false;
+      panels.forEach((el) => { el.classList.remove("stale"); el.removeAttribute("aria-busy"); });
+    }
+  }, 0));
+}
+
+function computeDistance() {
   const resD = document.getElementById("dist-result"), resE = document.getElementById("epsdelta-result");
   document.querySelectorAll(".dist-unit").forEach((el) => (el.textContent = unitLabel()));
   if (!comparison) { resD.innerHTML = `<p class="hint">Fix both models to measure how far apart they are.</p>`; resE.innerHTML = ""; return; }
@@ -1291,7 +1741,7 @@ function runDistance() {
   compSel.innerHTML = leaves.map((l) => `<option${l === distState.component ? " selected" : ""}>${escapeHtml(l)}</option>`).join("");
   const stagesB = stagesOf(api({ op: "analyse", source: editorB.value, max_states: 2000 }).ok);
   const common = stageOptions().filter((s) => stagesB.includes(s));
-  document.getElementById("dist-stages").innerHTML = common.map((s) => `<option value="${escapeHtml(s)}">`).join("");
+  document.getElementById("dist-stages").innerHTML = common.map((s) => `<option value="${escapeAttr(s)}">`).join("");
   const typing = document.activeElement === document.getElementById("dist-state");
   if (!distState.state.trim() || (!typing && !stageOptions().includes(distState.state.trim()) && common.length)) distState.state = common[0] || stageOptions()[0] || "";
   for (const [id, f] of Object.entries(DIST_FIELDS)) {
@@ -1308,7 +1758,7 @@ function runDistance() {
     const top = r.pairs.filter((p) => p.contribution > 0).slice(0, 5);
     resD.innerHTML = `<div class="verdict-banner${same ? " on" : r.distance >= 0.1 ? " off" : ""}"><span class="pill ${same ? "ok" : r.distance < 0.1 ? "warn" : "bad"}">${(100 * r.distance).toFixed(1)} %</span><div><p>${escapeHtml(r.explanation)}</p><p class="hint">Distance <span class="mono">${fmtNum(r.distance)}</span> ± <span class="mono">${fmtNum(r.error_bound)}</span>; 100 % is a difference of ${fmtNum(r.scale, 2)} in the count (Calo et al., NeurIPS 2024).</p></div></div>` +
       (top.length ? `<div class="table-wrap"><table id="dist-pairs"><thead><tr><th>State in A</th><th>State in B</th><th class="num">Gap</th><th class="num">Time share</th><th class="num">Contribution</th></tr></thead><tbody>` +
-        top.map((p) => `<tr><td class="mono">${escapeHtml(p.a)}</td><td class="mono">${escapeHtml(p.b)}</td><td class="num">${fmtNum(p.gap, 3)}</td><td class="num">${(100 * p.occupancy).toFixed(1)} %</td><td class="num">${fmtNum(p.contribution)}</td></tr>`).join("") +
+        top.map((p) => `<tr><td class="mono wrap">${escapeHtml(p.a)}</td><td class="mono wrap">${escapeHtml(p.b)}</td><td class="num">${fmtNum(p.gap, 3)}</td><td class="num">${(100 * p.occupancy).toFixed(1)} %</td><td class="num">${fmtNum(p.contribution)}</td></tr>`).join("") +
         `</tbody></table></div><p class="hint">The state pairs that add most to the distance: how far apart the count is in the pair (as a share of its range), and how much of the discounted time the closest pairing spends there.</p>` : "");
   }
 
@@ -1326,7 +1776,10 @@ function runDistance() {
     r.reach_bound != null ? `outcome bound <b>${fmtNum(r.reach_bound)}</b>` : "",
     r.rate_only_bound != null ? `if only rates differ <b>${fmtNum(r.rate_only_bound)}</b>` : "",
   ].filter(Boolean).map((s) => `<span>${s}</span>`).join("");
-  resE.innerHTML = `<div class="verdict-banner ${ok ? "on" : "off"}">${pill}<div><p>${escapeHtml(r.explanation)}</p><div class="facts">${facts}</div><p class="hint">(ε, δ)-bisimulation for continuous-time chains (Spork et al., CAV 2025).</p></div></div>`;
+  // ε = 1 relates any two jump distributions: the tolerance says nothing.
+  const vacuous = r.min_epsilon != null && r.min_epsilon >= 1 - 1e-4
+    ? `<p class="hint">ε = 1 allows the jump probabilities to differ completely, so the tolerance check does not relate these models in any useful way; the distance above is the better measure here.</p>` : "";
+  resE.innerHTML = `<div class="verdict-banner ${ok ? "on" : "off"}">${pill}<div><p>${escapeHtml(r.explanation)}</p>${vacuous}<div class="facts">${facts}</div><p class="hint">(ε, δ)-bisimulation for continuous-time chains (Spork et al., CAV 2025).</p></div></div>`;
 }
 
 for (const [id, f] of Object.entries(DIST_FIELDS)) {
@@ -1389,12 +1842,12 @@ function renderObsInputs() {
   const table = document.getElementById("obs-table");
   table.innerHTML = `<thead><tr><th>Date</th>${multi ? "<th>Component</th>" : ""}<th>State</th><th class="num">Count</th><th></th></tr></thead><tbody>` +
     obsState.rows.map((r, i) => `<tr data-i="${i}">
-      <td><input class="date" id="obs-date-${i}" data-f="date" value="${escapeHtml(r.date)}" placeholder="dd/mm/yyyy" aria-label="Date of count ${i + 1}"></td>
+      <td><input class="date" id="obs-date-${i}" data-f="date" value="${escapeAttr(r.date)}" placeholder="dd/mm/yyyy" aria-label="Date of count ${i + 1}"></td>
       ${multi ? `<td><select id="obs-comp-${i}" data-f="component" aria-label="Component of count ${i + 1}">${leaves.map((l) => `<option${l === r.component ? " selected" : ""}>${escapeHtml(l)}</option>`).join("")}</select></td>` : ""}
-      <td><input id="obs-state-${i}" data-f="state" list="obs-stages" value="${escapeHtml(r.state)}" aria-label="State of count ${i + 1}"></td>
+      <td><input id="obs-state-${i}" data-f="state" list="obs-stages" value="${escapeAttr(r.state)}" aria-label="State of count ${i + 1}"></td>
       <td class="num"><input class="count" id="obs-count-${i}" data-f="count" type="number" min="0" step="1" value="${r.count}" aria-label="Count ${i + 1}"></td>
       <td><button class="btn icon" type="button" data-remove="${i}" aria-label="Remove count ${i + 1}">✕</button></td></tr>`).join("") +
-    `</tbody><datalist id="obs-stages">${stages.map((s) => `<option value="${escapeHtml(s)}">`).join("")}</datalist>`;
+    `</tbody><datalist id="obs-stages">${stages.map((s) => `<option value="${escapeAttr(s)}">`).join("")}</datalist>`;
   table.querySelectorAll("input, select").forEach((el) => el.addEventListener("input", () => {
     const i = +el.closest("tr").dataset.i, f = el.dataset.f;
     obsState.rows[i][f] = f === "count" ? Math.max(0, parseInt(el.value || "0", 10)) : el.value;
@@ -1406,7 +1859,7 @@ function renderObsInputs() {
   const params = pepaParams();
   const box = document.getElementById("fit-params");
   const prev = new Set([...box.querySelectorAll("input:checked")].map((c) => c.value));
-  box.innerHTML = params.length ? params.map((p, i) => `<label><input type="checkbox" id="fit-p-${i}" value="${escapeHtml(p)}"${prev.has(p) ? " checked" : ""}> ${escapeHtml(p)}</label>`).join("") : `<span class="hint">The model has no rate parameters (lines like <span class="mono">veg_days = 28;</span>).</span>`;
+  box.innerHTML = params.length ? params.map((p, i) => `<label><input type="checkbox" id="fit-p-${i}" value="${escapeAttr(p)}"${prev.has(p) ? " checked" : ""}> ${escapeHtml(p)}</label>`).join("") : `<span class="hint">The model has no rate parameters (lines like <span class="mono">veg_days = 28;</span>).</span>`;
 }
 
 function pepaParams() {
@@ -1444,10 +1897,14 @@ function runObserve() {
   document.getElementById("obs-results").querySelector("th:nth-child(2)").textContent = UNIT_LABEL[obsState.unit] === "days" ? "Day" : `Time (${UNIT_LABEL[obsState.unit]})`;
 
   const sel = document.getElementById("obs-state"), prev = sel.value;
-  const keys = [...new Set(obsReport.rows.map((x) => x.component + "\u0000" + x.state))];
-  sel.innerHTML = keys.map((k) => { const [c, st] = k.split("\u0000"); return `<option value="${escapeHtml(k)}">${escapeHtml(multi ? `${c}: ${st}` : st)}</option>`; }).join("");
+  // Option values are JSON pairs: a control character as separator (e.g.
+  // NUL) does not survive the HTML parser, and the selection then matches
+  // no option.
+  const key = (c, st) => JSON.stringify([c, st]);
+  const keys = [...new Set(obsReport.rows.map((x) => key(x.component, x.state)))];
+  sel.innerHTML = keys.map((k) => { const [c, st] = JSON.parse(k); return `<option value="${escapeAttr(k)}">${escapeHtml(multi ? `${c}: ${st}` : st)}</option>`; }).join("");
   const firstOff = obsReport.rows.find((x) => x.status !== "on_track");
-  sel.value = keys.includes(prev) ? prev : firstOff ? firstOff.component + "\u0000" + firstOff.state : keys[0];
+  sel.value = keys.includes(prev) ? prev : firstOff ? key(firstOff.component, firstOff.state) : keys[0];
   ["obs-chart-controls", "obs-legend", "obs-results-wrap"].forEach((id) => (document.getElementById(id).hidden = false));
   drawObsChart();
 }
@@ -1461,7 +1918,9 @@ function renderObsInputsIfStale() {
 function drawObsChart() {
   const host = document.getElementById("obs-chart");
   if (!obsReport) { host.innerHTML = ""; return; }
-  const [component, state] = document.getElementById("obs-state").value.split("\u0000");
+  const picked = document.getElementById("obs-state").value;
+  if (!picked) { host.innerHTML = ""; return; }
+  const [component, state] = JSON.parse(picked);
   const rows = obsReport.rows.filter((x) => x.component === component && x.state === state);
   const horizon = Math.max(1, Math.max(...obsReport.rows.map((x) => x.elapsed)) * 1.3);
   const N = 120, times = Array.from({ length: N + 1 }, (_, i) => (horizon * i) / N);
@@ -1509,9 +1968,20 @@ function drawObsChart() {
 }
 
 function runFit() {
-  const out = document.getElementById("fit-result");
+  const out = document.getElementById("fit-result"), button = document.getElementById("fit-run");
   const params = [...document.querySelectorAll("#fit-params input:checked")].map((c) => c.value);
   if (!params.length) { out.innerHTML = `<p class="hint">Tick at least one parameter.</p>`; return; }
+  // Fitting re-solves the model many times and blocks the page meanwhile:
+  // say so first, and let the browser paint it before starting.
+  button.disabled = true;
+  button.textContent = "Fitting…";
+  out.innerHTML = `<p class="hint" role="status">Fitting ${params.length === 1 ? "one parameter" : params.length + " parameters"} to the counts…</p>`;
+  requestAnimationFrame(() => setTimeout(() => {
+    try { fitNow(out, params); } finally { button.disabled = false; button.textContent = "Fit to counts"; }
+  }, 0));
+}
+
+function fitNow(out, params) {
   const r = api({ op: "fit", source: editorA.value, timeline: timeline(), observations: observationsPayload(), params, max_states: 5000 });
   if (r.error) { out.innerHTML = r.error.map((d) => `<div class="diag"><span class="pill bad">error</span><span>${escapeHtml(d.message)}</span></div>`).join(""); return; }
   fitResult = r.ok;
@@ -1755,8 +2225,23 @@ function setView(view) {
   for (const v of ["space", "components", "time", "observe", "compare", "stream", "tutorial"]) document.getElementById("view-" + v).hidden = v !== view;
   store.set("view", view);
   renderView();
+  requestAnimationFrame(relayoutVisible);
 }
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => setView(t.dataset.view)));
+// Arrow keys move between tabs (WAI-ARIA tabs pattern).
+document.querySelector(".tabs").addEventListener("keydown", (e) => {
+  const tabs = [...document.querySelectorAll(".tab")];
+  const i = tabs.indexOf(document.activeElement);
+  if (i < 0) return;
+  const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (j === undefined) return;
+  e.preventDefault();
+  const t = tabs[(j + tabs.length) % tabs.length];
+  t.focus();
+  setView(t.dataset.view);
+});
+let resizeTimer = 0;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(relayoutVisible, 200); });
 document.getElementById("show-full").addEventListener("click", () => { showLumped = false; updateSeg(); renderSpace(); });
 document.getElementById("show-lumped").addEventListener("click", () => { showLumped = true; updateSeg(); renderSpace(); });
 function updateSeg() {
@@ -1786,6 +2271,9 @@ exampleSel.addEventListener("change", () => {
 const presetSel = document.getElementById("preset-b");
 presetSel.innerHTML = Object.keys(PRESETS_B).map((k) => `<option>${k}</option>`).join("") + `<option value="">(your draft)</option>`;
 presetSel.addEventListener("change", () => { if (!presetSel.value) return; editorB.value = PRESETS_B[presetSel.value]; store.set("b", editorB.value); scheduleCompare(); });
+
+// The tutorial reopens at the step the viewer was on.
+showTutStep(+(store.get("tutStep") || 0) || 0);
 
 // Restore the viewer's drafts, otherwise start from the herd example.
 try { const saved = JSON.parse(store.get("obs") || "null"); if (saved && Array.isArray(saved.rows)) obsState = saved; } catch { /* ignore a broken draft */ }
