@@ -287,7 +287,11 @@ input[type="text"].stage { width: 9em; }
 .viz.tree circle { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.5; transition: fill 0.2s; }
 .viz.tree g.visited circle { fill: var(--accent-soft); stroke: var(--accent); }
 .viz.tree g.current circle { fill: var(--accent); }
-.viz.tree g.current text { fill: var(--on-accent); }
+.viz.tree g.current text.order { fill: var(--on-accent); }
+.viz.tree g.done circle { fill: var(--ok-soft); stroke: var(--ok); }
+.viz.tree g.done.current circle { fill: var(--ok); }
+.viz.tree text.tick { font-size: 11.5px; fill: var(--ok); font-weight: 700; }
+.viz.tree g.best circle { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 2.5; }
 .viz.tree text.order { font-family: var(--font-mono); font-size: 12px; }
 .viz.tree text.level { font-size: 11px; fill: var(--muted); text-anchor: start; }
 .viz .node text { font-size: 12px; }
@@ -617,13 +621,13 @@ Step: if it holds for n, add n + 1 to both sides:
             <h2>Depth first and breadth first: a picture of the two</h2>
             <p>Every system unfolds into a tree of possible runs: the root is the start, and each branch is a step it can take. Two ways to walk a tree give a helpful picture of induction and coinduction. It is a picture, not a theorem: proofs can be organised in many ways. What matters is that induction needs the bottom of the tree and coinduction does not.</p>
             <div class="row">
-              <button class="btn" data-tree="dfs">Walk depth first (induction)</button>
-              <button class="btn" data-tree="bfs">Walk breadth first (coinduction)</button>
+              <button class="btn" data-tree="dfs">Find the largest, depth first (induction)</button>
+              <button class="btn" data-tree="bfs">Find the largest, breadth first (coinduction)</button>
             </div>
             <div class="viz-wrap"><svg class="viz tree" id="tree-svg" viewBox="0 0 560 270" role="img" aria-label="A tree of runs, walked depth first or breadth first"></svg></div>
-            <p id="tree-caption" class="hint" aria-live="polite">Pick a walk to see the order in which the tree is visited.</p>
-            <p><strong>Depth first, finishing the children before the parent</strong> is how induction proves a fact about a finished tree. It goes down a branch to the leaves (the base cases), proves them, and climbs back up: a node is done once everything below it is done. This needs leaves at the bottom.</p>
-            <p><strong>Breadth first, one level at a time</strong> fits never-ending behaviour, where the tree has no bottom (the dotted lines). After checking level <code>k</code> you know that the two systems agree for their first <code>k</code> steps. The Studio’s comparison grows in exactly this way, round by round. If the systems differ, the difference appears at some finite level, so the walk finds it. If they never differ, every level agrees, and the claim from step 3 settles all levels at once.</p>
+            <p id="tree-caption" class="hint" aria-live="polite">Each node holds a number. Pick a walk to watch it search for the largest one.</p>
+            <p><strong>Depth first</strong> starts at the root and follows one branch all the way down before trying the next. To find the largest number it cannot answer for a node until it has the answers from both branches below: on the way back up, each node reports <em>the larger of its own number and the two answers below it</em>. The leaves answer straight away (the base cases), and the root’s answer is the maximum of the whole tree. That is induction: base cases plus one combining step, and it needs leaves at the bottom.</p>
+            <p><strong>Breadth first</strong> looks at the tree one level at a time and keeps the largest number seen so far. It never has to wait for a bottom, so it also works when the tree goes on for ever (the dotted lines), but then its answer is never final: only “the largest within the first <code>k</code> levels”. Comparing never-ending systems works the same way. After <code>k</code> rounds the Studio knows the systems agree for their first <code>k</code> steps (“holds so far”). If they differ, the difference shows up at some finite level; if they never differ, the coinductive claim from step 3 settles all levels at once.</p>
           </section>
 
           <section class="tut-step" data-title="Evidence of a difference">
@@ -1219,20 +1223,38 @@ function treeNodes() {
   }
   return nodes;
 }
-function treeOrder(kind) {
-  if (kind === "bfs") return treeNodes().map((n) => n.id);
-  // Depth first, children before the parent (post-order): leaves first.
+// The walk as a list of events, searching the tree for its largest number.
+// Breadth first visits level by level and keeps the largest number seen so
+// far. Depth first is the real search: it *visits* a node on the way down
+// (root first, then the leftmost branch) and *finishes* it on the way back
+// up, once both children are finished, reporting the largest number below
+// it: max(own number, the children's answers). That bottom-up combination
+// is induction; the root's answer is the maximum of the whole tree.
+const TREE_VALUES = [3, 8, 5, 2, 9, 1, 7, 4, 6, 12, 3, 10, 2, 5, 11];
+function treeEvents(kind) {
+  if (kind === "bfs") return treeNodes().map((n) => ({ type: "visit", id: n.id }));
   const out = [];
-  const visit = (id) => { const l = Math.floor(Math.log2(id + 1)); if (l + 1 < TREE_LEVELS) { visit(2 * id + 1); visit(2 * id + 2); } out.push(id); };
-  visit(0);
+  const search = (id) => {
+    out.push({ type: "visit", id });
+    let best = TREE_VALUES[id];
+    if (Math.floor(Math.log2(id + 1)) + 1 < TREE_LEVELS) best = Math.max(best, search(2 * id + 1), search(2 * id + 2));
+    out.push({ type: "finish", id, best });
+    return best;
+  };
+  search(0);
   return out;
 }
 let treeTimer = 0;
 function drawTree(kind, upto = -1) {
   const svg = document.getElementById("tree-svg");
   if (!svg) return;
-  const nodes = treeNodes(), order = kind ? treeOrder(kind) : [];
-  const rank = new Map(order.map((id, k) => [id, k]));
+  const nodes = treeNodes(), events = kind ? treeEvents(kind) : [];
+  const visited = new Set(), finished = new Map();
+  events.slice(0, upto + 1).forEach((e) => (e.type === "visit" ? visited.add(e.id) : finished.set(e.id, e.best)));
+  const current = upto >= 0 && upto < events.length ? events[upto].id : -1;
+  // Breadth first: the largest number seen so far, and where it is.
+  const seen = [...visited];
+  const bestSoFar = seen.length ? Math.max(...seen.map((id) => TREE_VALUES[id])) : null;
   let out = "";
   for (const n of nodes) {
     if (n.level + 1 < TREE_LEVELS) {
@@ -1242,24 +1264,51 @@ function drawTree(kind, upto = -1) {
     }
   }
   for (const n of nodes) {
-    const k = rank.get(n.id);
-    const cls = k === undefined || k > upto ? "" : k === upto ? "current visited" : "visited";
-    out += `<g class="${cls}"><circle cx="${n.x}" cy="${n.y}" r="13"/>${k !== undefined && k <= upto ? `<text class="order" x="${n.x}" y="${n.y + 4}">${k + 1}</text>` : ""}</g>`;
+    const best = kind === "bfs" && bestSoFar !== null && visited.has(n.id) && TREE_VALUES[n.id] === bestSoFar;
+    const cls = [visited.has(n.id) ? "visited" : "", finished.has(n.id) ? "done" : "", n.id === current ? "current" : "", best ? "best" : ""].join(" ").trim();
+    // Leaves report below themselves (they sit close together); inner nodes
+    // to their upper right.
+    const leaf = n.level + 1 >= TREE_LEVELS;
+    const report = !finished.has(n.id) ? ""
+      : leaf ? `<text class="tick" x="${n.x}" y="${n.y + 30}">max ${finished.get(n.id)}</text>`
+      : `<text class="tick" x="${n.x + 17}" y="${n.y - 10}" text-anchor="start">max ${finished.get(n.id)}</text>`;
+    out += `<g class="${cls}"><circle cx="${n.x}" cy="${n.y}" r="13"/><text class="order" x="${n.x}" y="${n.y + 4}">${TREE_VALUES[n.id]}</text>${report}</g>`;
   }
-  if (kind === "bfs") for (let l = 0; l < TREE_LEVELS; l++) out += `<text class="level" x="0" y="${30 + l * 62}">step ${l}</text>`;
+  if (kind === "bfs") for (let l = 0; l < TREE_LEVELS; l++) out += `<text class="level" x="0" y="${30 + l * 62}">level ${l}</text>`;
   if (kind === "dfs") out += `<text class="level" x="0" y="${30 + (TREE_LEVELS - 1) * 62}">leaves</text>`;
   svg.innerHTML = out;
 }
 function walkTree(kind) {
   clearInterval(treeTimer);
-  const total = treeNodes().length;
+  const events = treeEvents(kind);
   const caption = document.getElementById("tree-caption");
-  caption.textContent = kind === "dfs"
-    ? "Depth first, children before parents: the leaves (base cases) are done first, and the root, the whole claim, last. It needs the tree to end."
-    : "Breadth first, one level at a time: after level k the two systems are known to agree for k steps. It never needs a bottom, so it suits trees that go on for ever.";
+  const say = (k) => {
+    const e = events[k];
+    if (kind === "bfs") {
+      const seen = events.slice(0, Math.min(k, events.length - 1) + 1).map((x) => TREE_VALUES[x.id]);
+      const level = e ? Math.floor(Math.log2(e.id + 1)) : TREE_LEVELS - 1;
+      caption.textContent = e
+        ? `Breadth first, level ${level}: the largest number so far is ${Math.max(...seen)}.`
+        : `After ${TREE_LEVELS} levels the largest number so far is ${Math.max(...seen)}. If the tree goes on (dotted lines), this can never be final: it is “largest so far”, just like “holds so far” when comparing a running system.`;
+      return;
+    }
+    if (!e) {
+      caption.textContent = `Depth first: every node reported the largest number below it, from the leaves up, and the root’s answer, max ${events[events.length - 1].best}, is the maximum of the whole tree. That is induction: base cases at the leaves, one combining step per node. It only works because the tree ends.`;
+      return;
+    }
+    const leaf = Math.floor(Math.log2(e.id + 1)) + 1 >= TREE_LEVELS;
+    caption.textContent = e.type === "visit"
+      ? (leaf ? `A leaf (${TREE_VALUES[e.id]}): nothing below it, so its answer is its own number (a base case).` : `Going down: visit ${TREE_VALUES[e.id]}, then search its left branch first.`)
+      : leaf ? `Leaf finished: max ${e.best}.` : `Back up: the larger of ${TREE_VALUES[e.id]} and the two answers below is ${e.best}.`;
+  };
   let k = 0;
   drawTree(kind, -1);
-  treeTimer = setInterval(() => { drawTree(kind, k); if (++k >= total) clearInterval(treeTimer); }, 380);
+  say(0);
+  treeTimer = setInterval(() => {
+    drawTree(kind, k);
+    say(k);
+    if (++k >= events.length) { clearInterval(treeTimer); setTimeout(() => say(events.length), 700); }
+  }, kind === "dfs" ? 450 : 500);
 }
 
 // ---------- Engine (Rust → WebAssembly, JSON in/out) ----------
