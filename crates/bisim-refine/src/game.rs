@@ -63,6 +63,43 @@ pub fn game_bisimilar<L: Eq + Hash + Clone>(
     Game::new(&union, budget).play(s, t)
 }
 
+/// A Spoiler move: `(from_right, label, answers)`, each answer the
+/// `(left, right)` pair Duplicator reaches.
+pub(crate) type SpoilerMove = (bool, LabelId, Vec<(StateId, StateId)>);
+
+/// Spoiler's moves from the position `(x, y)` of `sys`, as
+/// `(from_right, label, answers)`: each answer is the `(left, right)` pair
+/// Duplicator can reach with a matching transition. With `simulation`,
+/// Spoiler moves only on the left.
+pub(crate) fn spoiler_moves<L: Eq + Hash + Clone>(
+    sys: &Lts<L>,
+    (x, y): (StateId, StateId),
+    simulation: bool,
+) -> Vec<SpoilerMove> {
+    let mut moves = Vec::new();
+    for (from_right, mover, answerer) in [(false, x, y), (true, y, x)] {
+        if from_right && simulation {
+            continue;
+        }
+        for em in sys.successors(mover) {
+            let answers = sys
+                .successors(answerer)
+                .iter()
+                .filter(|ea| ea.label == em.label)
+                .map(|ea| {
+                    if from_right {
+                        (ea.target, em.target)
+                    } else {
+                        (em.target, ea.target)
+                    }
+                })
+                .collect();
+            moves.push((from_right, em.label, answers));
+        }
+    }
+    moves
+}
+
 /// One Spoiler move from a position, with Duplicator's answers.
 struct Move {
     /// Spoiler moves the right state (and Duplicator answers on the left).
@@ -96,7 +133,8 @@ pub(crate) struct Game<'a, L> {
     positions: Vec<Position>,
     /// Discovered positions not expanded yet, in breadth-first order.
     queue: VecDeque<usize>,
-    expanded: usize,
+    /// Positions expanded so far (the work measure the budget bounds).
+    pub(crate) expanded: usize,
     /// States that may still gain transitions (a growing prefix); indexed
     /// by state, empty when every state is final.
     unfinished: Vec<bool>,
@@ -107,7 +145,7 @@ pub(crate) struct Game<'a, L> {
 }
 
 impl<'a, L: Eq + Hash + Clone> Game<'a, L> {
-    fn new(sys: &'a Lts<L>, budget: GameBudget) -> Self {
+    pub(crate) fn new(sys: &'a Lts<L>, budget: GameBudget) -> Self {
         Self {
             sys,
             budget,
@@ -199,37 +237,23 @@ impl<'a, L: Eq + Hash + Clone> Game<'a, L> {
         let ((x, y), depth) = (self.positions[p].pair, self.positions[p].depth);
         let mut moves = Vec::new();
         self.saw_unfinished |= self.is_unfinished(x) || self.is_unfinished(y);
-        for (from_right, mover, answerer) in [(false, x, y), (true, y, x)] {
-            if from_right && self.simulation {
-                continue;
-            }
-            let answerer_open = self.is_unfinished(answerer);
-            for em in sys.successors(mover) {
-                let answers: Vec<usize> = sys
-                    .successors(answerer)
-                    .iter()
-                    .filter(|ea| ea.label == em.label)
-                    .map(|ea| {
-                        let pair = if from_right {
-                            (ea.target, em.target)
-                        } else {
-                            (em.target, ea.target)
-                        };
-                        self.position(pair, depth + 1)
-                    })
-                    .collect();
-                let open = answers
-                    .iter()
-                    .filter(|&&q| self.positions[q].refuted_by.is_none())
-                    .count();
-                moves.push(Move {
-                    from_right,
-                    label: em.label,
-                    answers,
-                    open,
-                    answerer_open,
-                });
-            }
+        for (from_right, label, pairs) in spoiler_moves(sys, (x, y), self.simulation) {
+            let answerer_open = self.is_unfinished(if from_right { x } else { y });
+            let answers: Vec<usize> = pairs
+                .into_iter()
+                .map(|pair| self.position(pair, depth + 1))
+                .collect();
+            let open = answers
+                .iter()
+                .filter(|&&q| self.positions[q].refuted_by.is_none())
+                .count();
+            moves.push(Move {
+                from_right,
+                label,
+                answers,
+                open,
+                answerer_open,
+            });
         }
         for (m, mv) in moves.iter().enumerate() {
             for &q in &mv.answers {

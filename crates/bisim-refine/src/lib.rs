@@ -23,9 +23,14 @@
 //! - [`PrefixChecker`]: the same comparisons over prefixes that grow, with
 //!   verdicts that stay sound for what has not been observed yet.
 //! - [`compare`] / [`bisimilar`]: the user-facing checks on two systems.
+//! - `challenger` (feature `learned-challenger`, experimental): a learned
+//!   Spoiler for the game; its witnesses are re-checked exactly and a
+//!   failed search answers `Unknown`, never "same".
 
 mod approx;
 mod causal;
+#[cfg(feature = "learned-challenger")]
+pub mod challenger;
 mod compare;
 mod fast;
 mod game;

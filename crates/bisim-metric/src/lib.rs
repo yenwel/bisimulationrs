@@ -36,6 +36,6 @@ pub use kantorovich::{
     Chain, Distance, MAX_METRIC_PAIRS, MetricError, MetricOptions, PairContribution,
     bisim_distance, common_rate, discount, distance, normalise, uniformise,
 };
-pub use learned::{LearnOptions, LearnedMetric, Mlp, learn_metric};
+pub use learned::{Adam, LearnOptions, LearnedMetric, Mlp, learn_metric};
 pub use samples::{MAX_SAMPLE_PAIRS, SampleDistance, StepSizes, occupancy_sample};
 pub use svi::{MAX_SVI_PAIRS, SviOptions, distance_svi};

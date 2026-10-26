@@ -110,6 +110,11 @@ Other ways to stream:
 | how far apart are two models too large for the exact method? | learned bisimulation distance, Deep Bisimulation for Control style (`learn_metric`) | none: an estimate; within about 0.01 of the exact value where both were computed | training time grows like 1/(1 − γ); needs state features |
 | do two sensor series evolve alike? | DSA (`dsa`, op `dsa`) | invariant to rotations of the sensor coordinates | compares fitted linear dynamics; not a bisimulation |
 
+Experimental, behind the feature `learned-challenger`: a learned Spoiler for the
+bisimulation game (`refine::challenger`). Its witnesses are re-checked exactly and a failed
+search answers `Unknown`, never "same". On the bundled models it is slower than the exact
+game and refinement and misses 7 of 21 differences (ROADMAP §4e has the numbers).
+
 ## What is verified, and how
 
 Not everything yet. What exists today:
@@ -152,7 +157,9 @@ data.
 
 ## References
 
-Grouped by topic. Entries marked † were added or re-checked by search between 19/10 and 23/10/2026; the
+Grouped by topic. Entries marked † were added or re-checked by search between 19/10 and 23/10/2026,
+those marked ‡ on 26/10/2026 (against Crossref and the Institut Polytechnique de Paris research
+portal); the
 rest were checked on 03/10/2026. Where an original link was dead, the working source is
 given.
 
@@ -197,6 +204,8 @@ given.
 - † Zhang, McAllister, Calandra, Gal, Levine, *Learning Invariant Representations for Reinforcement Learning without Reconstruction* (Deep Bisimulation for Control, ICLR 2021, arXiv:2006.10742): https://arxiv.org/abs/2006.10742
 - † Castro, Kastner, Panangaden, Rowland, *MICo: Improved representations via sampling-based state similarity for Markov decision processes* (NeurIPS 2021, arXiv:2106.08229): https://arxiv.org/abs/2106.08229
 - † Ostrow, Eisen, Kozachkov, Fiete, *Beyond Geometry: Comparing the Temporal Structure of Computation in Neural Circuits with Dynamical Similarity Analysis* (NeurIPS 2023, arXiv:2306.10168): https://arxiv.org/abs/2306.10168
+- ‡ Desharnais, Laviolette, Zhioua, *Testing Probabilistic Equivalence Through Reinforcement Learning* (FSTTCS 2006, LNCS 4337, pp. 236–247), doi:10.1007/11944836_23; extended under the same title in Information and Computation 227 (2013), pp. 21–57, doi:10.1016/j.ic.2013.02.002. Abstracts only: the full texts were not reachable.
+- ‡ Desharnais, Laviolette, Moturu, Zhioua, *Trace Equivalence Characterization Through Reinforcement Learning* (Canadian AI 2006, LNAI 4013, pp. 371–382), doi:10.1007/11766247_32. Abstract only.
 - Altschuler, Weed, Rigollet, *Near-linear time approximation algorithms for optimal transport via Sinkhorn iteration* (NeurIPS 2017): the rounding step used by the Sinkhorn solver
 - Julius, Girard, Pappas, *Approximate bisimulation for a class of stochastic hybrid systems* (ACC 2006), via the Wayback Machine; Girard & Pappas, *Approximation metrics for discrete and continuous systems* (IEEE TAC 2007)
 

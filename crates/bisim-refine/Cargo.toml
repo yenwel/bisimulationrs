@@ -10,6 +10,11 @@ repository.workspace = true
 
 [dependencies]
 bisim-core.workspace = true
+bisim-metric = { workspace = true, optional = true }
+
+[features]
+# Experimental: a learned Spoiler for the bisimulation game (ROADMAP §4e).
+learned-challenger = ["dep:bisim-metric"]
 
 [lints]
 workspace = true

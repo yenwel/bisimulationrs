@@ -179,8 +179,40 @@ impl Mlp {
         }
     }
 
+    /// One Adam step on the mean squared error between the outputs for
+    /// `inputs` and `targets` (one target vector per input); returns that
+    /// error before the step. For regression uses outside this module, such
+    /// as the learned challenger of `bisim-refine`.
+    ///
+    /// # Panics
+    /// When `inputs` and `targets` differ in length or are empty.
+    pub fn fit_step(&mut self, adam: &mut Adam, inputs: &[Vec<f64>], targets: &[Vec<f64>]) -> f64 {
+        assert!(
+            !inputs.is_empty() && inputs.len() == targets.len(),
+            "one target per input"
+        );
+        let scale = 1.0 / inputs.len() as f64;
+        let mut grads = self.zero_grads();
+        let mut loss = 0.0;
+        for (x, y) in inputs.iter().zip(targets) {
+            let acts = self.forward(x);
+            let out = acts.last().expect("output");
+            let g: Vec<f64> = out
+                .iter()
+                .zip(y)
+                .map(|(o, t)| {
+                    loss += (o - t) * (o - t);
+                    2.0 * (o - t) * scale
+                })
+                .collect();
+            self.backward(&acts, &g, &mut grads);
+        }
+        adam.step(self, &grads);
+        loss * scale
+    }
+
     /// `self ← τ·other + (1 − τ)·self` (a slowly following target network).
-    fn follow(&mut self, other: &Self, tau: f64) {
+    pub fn follow(&mut self, other: &Self, tau: f64) {
         for (a, b) in self.layers.iter_mut().zip(&other.layers) {
             for (x, y) in a.w.iter_mut().zip(&b.w) {
                 *x += tau * (y - *x);
@@ -192,9 +224,9 @@ impl Mlp {
     }
 }
 
-/// Adam state for one network.
+/// Adam state for one network (β = (0.9, 0.999)).
 #[derive(Debug, Clone)]
-struct Adam {
+pub struct Adam {
     m: Grads,
     v: Grads,
     t: i32,
@@ -202,7 +234,8 @@ struct Adam {
 }
 
 impl Adam {
-    fn new(net: &Mlp, rate: f64) -> Self {
+    /// Fresh optimiser state for `net`, with learning rate `rate`.
+    pub fn new(net: &Mlp, rate: f64) -> Self {
         Self {
             m: net.zero_grads(),
             v: net.zero_grads(),

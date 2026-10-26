@@ -78,6 +78,7 @@ name = "bisim-refine"
 version = "0.2.0"
 dependencies = [
  "bisim-core",
+ "bisim-metric",
 ]
 
 [[package]]

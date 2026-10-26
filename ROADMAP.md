@@ -184,7 +184,7 @@ model whenever given) and which become estimates. An estimate is never reported 
 | Fluid and mean-field limits | the whole state space, for large populations | none; approximations with limit guarantees | done for PEPA (`fluid_model`), no error bound |
 | Statistical model checking | the whole state space | none; confidence-bounded estimates | SSA exists, no stopping rules |
 | Learned bisimulation metric (deep RL) | the space of state pairs | none; estimates | done (`learn_metric`): within about 0.01 of the exact distance on the beds where both were computed |
-| RL as a witness finder | search effort for refutations | **differs** only, after re-checking the witness | not started |
+| RL as a witness finder | search effort for refutations | **differs** only, after re-checking the witness | prototype (feature `learned-challenger`, 26/10/2026): sound, but slower than the exact game on every bundled model |
 | Quantum algorithms | at most quadratic search | not applicable today | exploratory only |
 
 ### 4a. Compositional minimisation (first)
@@ -258,6 +258,68 @@ for Control*, ICLR 2021). Use learning only to **guide search**, never to decide
   That changes speed, not verdicts.
 - Causal RL (interventions as actions) relates to section 2b, not to scaling.
 
+**Prior work (checked 26/10/2026).** Desharnais, Laviolette and Zhioua test probabilistic
+equivalence with RL: the divergence between two labelled Markov processes is the optimal
+value of a derived MDP, which an agent learns by performing actions and receiving
+observations. Their abstracts state that the value is zero for equivalent processes, that
+the output is a number and a test witnessing non-equivalence, that the K-moment
+equivalences range from trace equivalence (K = 1) to just below bisimulation, and (Canadian
+AI 2006) that PAC guarantees hold for the estimate. The MDP construction, the test grammar
+and the PAC theorem could not be read: Springer, ScienceDirect (the 2013 journal version is
+in Elsevier's open archive) and the thesis links refused access or are dead. They remain
+unconfirmed here. No work was found that trains an RL agent as Spoiler in the bisimulation
+game.
+
+**Which one first.** The learned challenger (b), not their black-box test (a):
+
+- their test needs to *run* chosen actions on both systems, repeatedly, from a reset.
+  A farm log is passive: the actions were chosen by the farmer, not by the tester. So it
+  fits a simulator, not the logged systems it seemed made for;
+- its answer is an estimate with a PAC bound, which the library would report as
+  `Unknown(p)`; the challenger's answer is a formula that is re-checked exactly;
+- the plans are models already, so the game can be played on them directly.
+
+**Prototype (26/10/2026).** `bisim_refine::challenger`, behind the feature
+`learned-challenger` (also on the `bisimulationrs` crate). A value network (the `Mlp` and
+`Adam` of `bisim-metric`) learns the discounted game value V(x, y): 1 if Spoiler has a move
+with no answer, else γ · max over moves of min over answers. It is trained by fitted value
+iteration with a target network on positions met in play: random play first, then self-play
+against the value. The input is local state features (enabled labels, and which labels are
+enabled always or sometimes one step later). The search is depth-first iterative deepening
+that tries the 2 best Spoiler moves per position, answers of least value first.
+Witnesses are re-checked with `Formula::holds`; a failed search is `Unknown`.
+
+Measured by the `learned_challenger` example (release build, Apple M3 Pro): each bundled
+PEPA model (untimed skeleton, reduced population) against a copy with one transition removed
+at a quarter, half and three quarters of its depth. All 21 pairs differ.
+
+| solver | differences found | positions explored | time per pair |
+|---|---|---|---|
+| partition refinement (`bisimilar`) | 21 of 21 | all states | 0.3–165 ms |
+| exact game (`game_bisimilar`, 100,000 positions) | 19 of 21 (tomatoes at depth 25 and 45: budget exhausted) | 9–7,979 when found | 0.0–16 ms when found |
+| learned challenger, beam 2, depth ≤ 32 | 14 of 21 | training 11–1,612, plus search 5–73 | training 0.36–6.7 s, search 0.1–25 ms |
+| same network, beam 4, depth ≤ 64 | 15 of 21 | search 7–490 | |
+| untrained network, beam 2 | 6 of 21 | search 2–36 | |
+
+- **Search alone** explores fewer positions than the exact game where it succeeds (coral at
+  depth 19: 73 vs 148; credit at depth 15: 18 vs 148). Training is what makes it work: an
+  untrained network finds only the 6 differences on the two models without branching
+  choices (sir and bass).
+- **Overall it does not beat the exact solvers.** Training expands about as many positions
+  as the exact game needs, and costs 0.36–6.7 s against at most 16 ms for the game and
+  165 ms for refinement. Even the search alone is slower than the exact game, because each
+  position evaluates the network. It misses 7 differences, including the only two the
+  exact game misses (tomatoes); refinement finds those in 99 and 165 ms.
+- **Why:** local features alias positions. A bisimilar pair and a pair three rounds apart
+  can have identical features, so the value can only average them (a test shows this). The
+  bundled models are small enough that exhaustive search is cheap.
+- **Sound:** every reported difference passed the exact re-check (0 rejected witnesses);
+  no "same" is ever returned.
+- **Open, if revisited:** features that see further (k-step label profiles, or signatures
+  from a few rounds of refinement, which then do most of the work); one network trained
+  across many queries of one model, which amortises training; models where refinement and
+  the game both run out of memory, which these are not.
+
 ### 4e′. Learned bisimulation metric (done, 24/10/2026)
 
 `bisim_metric::learn_metric` trains a small neural network so that ℓ1 distances between
@@ -298,5 +360,5 @@ Recorded so the trade-off is explicit, not planned as a backend.
 1. 4a (compositional minimisation): proved already, exact, largest gain for PEPA.
 2. 4b (MTBDD), with differential tests against the explicit engine.
 3. 4c and 4d: error estimates and stopping rules, reported as estimates.
-4. 4e as an optional witness finder behind a feature flag.
+4. 4e as an optional witness finder behind a feature flag: prototyped (`learned-challenger`); it does not pay off on the bundled models.
 5. 4f stays a note.

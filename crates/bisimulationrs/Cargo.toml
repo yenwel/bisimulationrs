@@ -17,8 +17,18 @@ bisim-stochastic.workspace = true
 bisim-metric.workspace = true
 futures-core.workspace = true
 
+[features]
+# Experimental: a learned Spoiler for the bisimulation game (ROADMAP §4e).
+learned-challenger = ["bisim-refine/learned-challenger"]
+
 [dev-dependencies]
 criterion.workspace = true
+# Builds and tests the experimental challenger with the workspace.
+bisim-refine = { workspace = true, features = ["learned-challenger"] }
+
+[[example]]
+name = "learned_challenger"
+required-features = ["learned-challenger"]
 
 [[bench]]
 name = "workloads"
