@@ -126,6 +126,10 @@ Not everything yet. What exists today:
   - a lumping survives any context;
   - a rate intervention can break a lumping.
 - **Witnesses:** every "differs" answer carries a formula you can check by hand.
+- **Certificates for "same" answers:** for four bundled models (two lumpings, two pairs of
+  models that behave the same) the library's partition is checked by the Lean kernel,
+  against a checker proved sound (`lean/Bisim/Cert.lean`). CI regenerates the certificates
+  from the library, so they are about what it computes today.
 - **Differential and property tests against independent oracles:**
   - fast vs naive refinement;
   - game vs refinement;

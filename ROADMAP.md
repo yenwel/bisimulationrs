@@ -14,16 +14,16 @@ References are in the [README](README.md#references). Dates are dd/mm/yyyy.
 implementation. Either it comes with a certificate that a small, proved checker accepts,
 or the code that produced it is itself proved.
 
-### Where we are (23/10/2026)
+### Where we are (30/10/2026)
 
 | layer | status |
 |---|---|
 | Theory | Lean 4 + Mathlib, no `sorry` (`lean/`): weighted bisimulation is a congruence for parallel composition; PEPA apparent-rate cooperation preserves strong equivalence; lumpings survive contexts; rate interventions can break lumpings |
 | "Differs" answers | carry a Hennessy–Milner formula, re-checked by `Formula::holds` in the tests |
-| "Same" answers | no certificate yet |
+| "Same" answers | partition certificates, checked by the Lean kernel against a checker proved sound (`lean/Bisim/Cert.lean`), for four bundled models; CI regenerates them from the library. The API does not emit them yet |
 | Algorithms | property and differential tests against independent oracles (naive refinement, game vs refinement, incremental vs replay, distance 0 vs lumping, (ε, δ)₀,₀ vs strong bisimulation), closed forms, mutation fuzzing of the parsers |
 | Numerics | `f64`; truncation bounds for uniformisation and interval iteration; certified error bound for the distance; no rounding-error analysis |
-| Rust ↔ proofs | no link: the Lean model is a simplification of `bisim-core` |
+| Rust ↔ proofs | the Lean model is a simplification of `bisim-core`; the certificates are the one link, for their models |
 
 ### Level 1: certificates for every verdict
 
@@ -50,9 +50,16 @@ Deliverables:
 - Formalise the checkers of Level 1 in Lean over the existing `WLTS` model (`lean/Bisim`).
   Prove *soundness*: checker accepts ⇒ the claimed relation holds. Bisimulation and HML
   semantics are in reach with the current Mathlib setup.
+  *Done for bisimulation and lumping (30/10/2026):* `Bisim.Cert.sound`. Simulation, HML,
+  game positions, distances and (ε, δ) remain.
 - Run the Lean checkers as executables in CI, against certificates the Rust code emits
   for every test and example model. This gives verified checking of real answers without
   verifying the Rust.
+  *Started differently (30/10/2026):* `emit_certificates` writes certificates as a Lean
+  file and the kernel checks them with `decide +kernel`. That keeps the trusted base at
+  the kernel, with no compiled code, but the kernel is slow, so it suits small models.
+  Four bundled models are covered; every test model, and an executable checker for large
+  ones, remain.
 - Formalise PEPA syntax and SOS in Lean (prefix, choice, constants, hiding, cooperation)
   and prove the congruence results for the full language, not only the cooperation rule.
 
