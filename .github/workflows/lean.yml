@@ -5,10 +5,23 @@ name: Lean proofs
 on:
   push:
     branches: [ "master" ]
-    paths: [ "lean/**", ".github/workflows/lean.yml" ]
+    paths:
+      - "lean/**"
+      - ".github/workflows/lean.yml"
+      # What the certificates are made from (see the certificates job).
+      - "crates/bisim-core/**"
+      - "crates/bisim-algebra/**"
+      - "crates/bisim-refine/**"
+      - "crates/bisimulationrs/examples/emit_certificates.rs"
   pull_request:
     branches: [ "master" ]
-    paths: [ "lean/**", ".github/workflows/lean.yml" ]
+    paths:
+      - "lean/**"
+      - ".github/workflows/lean.yml"
+      - "crates/bisim-core/**"
+      - "crates/bisim-algebra/**"
+      - "crates/bisim-refine/**"
+      - "crates/bisimulationrs/examples/emit_certificates.rs"
   workflow_dispatch: {}
 
 jobs:
@@ -26,3 +39,16 @@ jobs:
         if grep -rn --include='*.lean' '\bsorry\b' lean/Bisim lean/Bisim.lean; then
           echo "A proof is left as sorry." && exit 1
         fi
+
+  # lean/Bisim/Certificates.lean holds the library's own answers for a few
+  # bundled models. Regenerate it and fail if the committed copy is stale, so
+  # the proofs above are about what the library computes today.
+  certificates:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Regenerate the certificates
+      run: cargo run -p bisimulationrs --example emit_certificates
+    - name: Committed certificates are current
+      run: git diff --exit-code lean/Bisim/Certificates.lean
