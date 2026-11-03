@@ -159,12 +159,31 @@ This crate's niche is the combination: comparison of running systems with plans,
 quantitative answers, explanations, and the bindings to use them on farm and population
 data.
 
+## Behavioural types, TLA+, agents and blockchain
+
+This is assessed, not built (ROADMAP §5). A *behavioural type* is a transition system of
+allowed moves:
+- "has type T" means T simulates the system;
+- subtyping is simulation, as for session types;
+- type equality is bisimulation.
+
+This library could be the checking engine for such types, with TLA+ for writing them (TLC
+can write a spec's state graph as DOT). It is not a static type system: it does not
+extract behaviour from agent code or smart contracts. Possible uses:
+- **coding agents:** a protocol over tool calls, checked live by the prefix checker, which
+  blocks the call that breaks it and says why;
+- **blockchain:** contract upgrades that keep the same public behaviour (weak
+  bisimulation), and node logs checked against a TLA+ spec.
+
+What is missing first: an importer for TLC state graphs, and branching (stuttering)
+bisimulation, because TLA+ ignores stuttering steps.
+
 ## References
 
 Grouped by topic. Entries marked † were added or re-checked by search between 19/10 and 23/10/2026,
 those marked ‡ on 26/10/2026 (against Crossref and the Institut Polytechnique de Paris research
-portal); the
-rest were checked on 03/10/2026. Where an original link was dead, the working source is
+portal), those marked ¶ on 01/11/2026 (by search, with authors and titles taken from the linked
+pages where they could be fetched); the rest were checked on 03/10/2026. Where an original link was dead, the working source is
 given.
 
 ### Bisimulation, coinduction, coalgebra
@@ -227,6 +246,25 @@ given.
 - † Rytgaard & van der Laan, *Causal inference for calibrated scaling interventions on time-to-event processes* (arXiv:2510.16798, 2025): https://arxiv.org/abs/2510.16798
 - † Brodersen, Gallusser, Koehler, Remy, Scott, *Inferring causal impact using Bayesian structural time-series models* (Annals of Applied Statistics 9(1), 2015)
 - Shapley, *A value for n-person games* (1953): the attribution method
+
+### Behavioural types, TLA+, agents and blockchain
+
+- ¶ Gay & Hole, *Subtyping for session types in the pi calculus* (Acta Informatica 42, 2005, pp. 191–225): https://eprints.gla.ac.uk/13744 (record only; the full text is not hosted there)
+- ¶ Udomsrirungruang & Yoshida, *Three Subtyping Algorithms for Binary Session Types and their Complexity Analyses* (arXiv:2402.06988, 2024; full version of a PLACES 2024 submission): https://arxiv.org/abs/2402.06988
+- ¶ Abadi & Lamport, *The Existence of Refinement Mappings* (LICS 1988; journal version in Theoretical Computer Science, 1991): https://www.microsoft.com/en-us/research/?p=145187
+- ¶ TLC options, including `-dump dot,actionlabels`: https://docs.tlapl.us/using:tlc:start; generating state graphs: https://docs.tlapl.us/using:generating_state_graphs
+- ¶ Wayne, *Breaking the limits of TLA+ model checking* (blog, 17/04/2023): https://www.hillelwayne.com/post/graphing-tla/
+- ¶ Apalache, symbolic model checker for TLA+ and Quint (Informal Systems): https://github.com/informalsystems/apalache
+- ¶ tendermint-rs, model-based tests of the light client generated from a TLA+ model: https://github.com/informalsystems/tendermint-rs/blob/HEAD/light-client/tests/support/model_based/Abstract.md
+- ¶ Groote & Vaandrager, *An efficient algorithm for branching bisimulation and stuttering equivalence* (ICALP 1990)
+- ¶ Groote & Wijs, *An O(m log n) Algorithm for Stuttering Equivalence and Branching Bisimulation* (TACAS 2016, arXiv:1601.01478): https://arxiv.org/abs/1601.01478
+- ¶ Jansen, Groote, Keiren, Wijs, *A simpler O(m log n) algorithm for branching bisimilarity on labelled transition systems* (TACAS 2020, part 2, pp. 3–20), doi:10.1007/978-3-030-45237-7_1, arXiv:1909.10824: https://arxiv.org/abs/1909.10824
+- ¶ Kamath, Zhang, Xu, Ugare, Singh, Misailovic, *Enforcing Temporal Constraints for LLM Agents* (Agent-C, arXiv:2512.23738, 2025): https://arxiv.org/abs/2512.23738
+- ¶ Li, Chen, Wen, Zhang, Liu, Wang, Feng, Tian, *VIGIL: Runtime Enforcement of Behavioral Specifications in AI Agent Skills* (arXiv:2606.26524, 2026): https://arxiv.org/abs/2606.26524
+- ¶ Elkoussy et al., *AgentLTL: A Trace-Verification Framework for Measuring, Enforcing, and Training Procedural Compliance in Tool-Using LLM Agents* (arXiv:2607.02599, 2026): https://arxiv.org/abs/2607.02599
+- ¶ McIlwaine & Caldwell, *Verifying Smart Contract Transformations Using Bisimulations* (FMBC 2025, OASIcs 129, pp. 9:1–9:19), doi:10.4230/OASIcs.FMBC.2025.9
+- ¶ Sorensen, *Formally Specifying Contract Optimizations with Bisimulations in Coq* (FMBC 2025, OASIcs 129, pp. 11:1–11:13), doi:10.4230/OASIcs.FMBC.2025.11
+- ¶ Certora, *[ARFC] Strengthening Upgrade Safety: Concord Equivalence Checker by Certora* (Aave governance forum, 23/04/2026): https://governance.aave.com/t/arfc-strengthening-upgrade-safety-concord-equivalence-checker-by-certora/24713
 
 ### Verification
 

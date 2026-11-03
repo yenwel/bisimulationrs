@@ -1,10 +1,11 @@
 # Roadmap
 
-Three tracks:
+Five tracks:
 1. making every answer **verifiable**;
 2. a **causal** layer;
 3. the remaining **engineering** work;
-4. **scaling** past state-space explosion without giving up sound verdicts.
+4. **scaling** past state-space explosion without giving up sound verdicts;
+5. **behavioural types** with TLA+, for coding agents and blockchain (assessed, not built).
 
 References are in the [README](README.md#references). Dates are dd/mm/yyyy.
 
@@ -369,3 +370,104 @@ Recorded so the trade-off is explicit, not planned as a backend.
 3. 4c and 4d: error estimates and stopping rules, reported as estimates.
 4. 4e as an optional witness finder behind a feature flag: prototyped (`learned-challenger`); it does not pay off on the bundled models.
 5. 4f stays a note.
+
+## 5. Behavioural types with TLA+ (coding agents, blockchain)
+
+Assessed 01/11/2026; nothing built yet.
+
+**Question:** can the library serve as a type system for coding agents or blockchain,
+together with TLA+?
+
+**Answer:** not as a static type system. Extracting behaviour from agent code or smart
+contracts is the hard part, and the library does not do it. As the checking engine for
+*behavioural types*, yes. A behavioural type is a transition system of allowed moves:
+
+| type-system idea | behavioural version | in this library |
+|---|---|---|
+| a type | a transition system of allowed moves | `Wlts`, PEPA, or a TLA+ spec's state graph |
+| "system has type T" | T can match every move the system makes | simulation (`simulation_preorder`) |
+| subtyping S <: T | T simulates S | the same check |
+| type equality | bisimilar | `refine_fast`, the game |
+| type error message | the move T cannot match | distinguishing formula |
+| proof the checker is right | certificate | `lean/Bisim/Cert.lean` ("same" answers only, so far) |
+| checking while it runs | monitor | `PrefixChecker`, `streaming` |
+
+This is how session types already work: Gay and Hole (Acta Informatica 2005) define
+subtyping coinductively, and Udomsrirungruang and Yoshida (2024) describe it as the
+largest type simulation.
+
+### 5a. TLA+ as the specification language
+
+- **Writing specs:** TLA+, or Quint, which keeps the TLA+ semantics with a more familiar
+  syntax. TLC writes the reachable state graph as DOT, with action names on the edges when
+  asked (`-dump dot,actionlabels file.dot`). That is practical only for small, bounded
+  models, and it is a direct route into `Wlts`.
+- **What TLA+ already checks:** refinement as trace inclusion, with stuttering steps
+  ignored (Abadi and Lamport, *The Existence of Refinement Mappings*). That is linear time:
+  every run of the implementation is a run of the spec.
+- **What the library would add:**
+  - branching time: the same choices are still open at each point;
+  - a distinguishing formula that explains a difference;
+  - rates;
+  - verdicts on a running system, per event;
+  - Lean-checked certificates.
+- **Gap:** stuttering. TLA+ ignores steps that change nothing visible, and agents and
+  contracts have internal steps that should stay hidden. The library has strong
+  bisimulation only. Known algorithms for branching bisimulation and stuttering
+  equivalence:
+  - Groote and Vaandrager (ICALP 1990);
+  - Groote and Wijs, `O(m log n)` (TACAS 2016);
+  - Jansen, Groote, Keiren and Wijs, a simpler `O(m log n)` (TACAS 2020).
+- **Sound:** a verdict on an imported TLC graph is about the bounded model TLC explored,
+  nothing more.
+
+### 5b. Coding agents
+
+- **Spec:** a protocol over tool calls. Examples: never commit, push or check out; read a
+  file before editing it; run the tests before saying "done".
+- **Monitor:** feed the tool-call stream into `PrefixChecker`. Block the call that would
+  make the verdict `Violated`, and show the witness. The incremental game was built for
+  this: one verdict per event, and a final refutation stays final.
+- **Related work** (monitoring on its own is not new):
+  - Agent-C (Kamath et al., arXiv:2512.23738, 2025): a temporal DSL checked with SMT,
+    which blocks non-compliant tool calls during generation;
+  - VIGIL (Li et al., arXiv:2606.26524, 2026): finite-trace behavioural policies, enforced
+    at run time with SMT;
+  - AgentLTL (Elkoussy et al., arXiv:2607.02599, 2026): first-order LTL over agent traces,
+    for gating tool calls and as a training signal.
+- **What would be new here:**
+  - comparing two agent setups on observable tool calls ("does v2 behave like v1?");
+  - a distance between agent behaviours estimated from logs (`SampleDistance`);
+  - Lean-checked certificates.
+- **Limit:** tool arguments are data (paths, contents), and labels here are plain names.
+  Arguments must be abstracted into classes such as `edit(src/**)` or `git push`. The
+  SMT-based monitors handle data better.
+
+### 5c. Blockchain
+
+- **Contract upgrades and transformations:** "the same public calls and events, with
+  internal steps hidden" is weak bisimulation. Related work:
+  - McIlwaine and Caldwell (FMBC 2025): weak bisimulation to verify Cardano contract
+    transformations;
+  - Sorensen (FMBC 2025): contract optimisations specified with bisimulations in Coq;
+  - Certora's Concord: bytecode-level equivalence of two contracts, not a bisimulation. It
+    was proposed to Aave governance in April 2026, and the forum reports that the Snapshot
+    vote passed in June 2026.
+- **Nodes against their spec:** Tendermint and CometBFT have TLA+ specs checked with
+  Apalache. The tendermint-rs model-based tests exist because the English spec, the TLA+
+  model and the code drift apart. A streaming check of a node's event log against the
+  spec's state graph would monitor that drift. It is the same plan-against-running-system
+  problem as the farm.
+- **Rates:** block times and fork frequency can be modelled as CTMCs. Safety under
+  Byzantine faults needs adversarial models, where rates do not help.
+- **Limit:** balances and mempools are unbounded, and the library works on explicit
+  states. This needs abstraction, or the symbolic engine (4b).
+
+### 5d. Steps
+
+1. TLC state-graph importer (DOT with action labels) into `Wlts`. Small.
+2. Branching bisimulation / stuttering equivalence, and weak simulation for monitors.
+   Medium; both uses need it.
+3. An agent tool-call monitor example, with a protocol spec.
+4. Lean certificates for simulation (Level 1–2), so that "allowed" answers are checked
+   too.
