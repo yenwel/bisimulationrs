@@ -157,6 +157,8 @@ possible.
 
 Done (most recent first):
 
+- [x] Robustness of "same" to non-exponential durations, experimental (`refine::durations`: Erlang expansion of rated nets, rated enabling-preserving bisimilarity); see REVIEW.md, Idea 3.
+- [x] Evidence against a plan from an event stream (`PlanEvidence`, `divergences`): valid whenever you look, explained per activity; see REVIEW.md, Idea 1.
 - [x] Compaction of settled prefix positions (`PrefixChecker::compact`, `compact_and_minimise`); verdicts still equal replay.
 - [x] Behavioural distances (`bisim-metric`), JSON ops, sessions, Studio panel, Python and R wrappers.
 - [x] Incremental prefix games, verdict streams (`streaming`), online rates, observation sessions, warm-started fits, response cache in PEPA Studio.
@@ -174,6 +176,9 @@ Open:
 - [ ] Full Modest import; CSL `G`/`U`; nested `system` composition; renaming synchronisation; fluid limits for single components.
 - [ ] Bounded memory for cyclic streams that never settle: compaction only helps once positions settle.
 - [ ] Confidence-aware verdicts (`Unknown(p)`) for models fitted from data.
+- [ ] `PlanEvidence` in the JSON API, PEPA Studio and the Python/R wrappers; a bet over hidden-state (phase-type) alternatives.
+- [x] Proof, checked in Lean, that bisimilarity of the Erlang-2 expansion implies rated ep-bisimilarity when no state enables two transitions of the same label and rate (`lean/Bisim/Durations.lean`).
+- [ ] The same without that condition (populations of identical individuals), or a counterexample; the easy direction in Lean; rated causal nets from PEPA.
 - [ ] Open items listed in [REVIEW.md](REVIEW.md) ("Not done").
 
 ## 4. Scaling

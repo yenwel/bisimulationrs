@@ -20,6 +20,8 @@ Runnable Rust programs (`cargo run -p bisimulationrs --example <name>`):
 | `causal_farm` | same Markov chain, different dependencies: two workers vs one farmer, two vets vs one, with a witness naming the causes |
 | `learned_distance` | a neural (deep-RL style) bisimulation distance next to the exact one: within about 0.01 on small and medium beds, and an estimate for beds with 1.7 million state pairs |
 | `emit_certificates` | the library's "same" answers for four models written as Lean certificates (`lean/Bisim/Certificates.lean`), which the Lean kernel checks in CI |
+| `bet_against_plan` | evidence that a herd is off plan, valid whenever you look: false alarms under systems bisimilar to the plan, events needed to find healing that is a few percent off, and what averages hide (run with `--release`) |
+| `durations` | which "same" verdicts survive non-exponential durations: Erlang expansions of random rated nets against enabling-preserving bisimilarity (run with `--release`) |
 | `sensor_similarity` | dynamical similarity of sensor series: 0 for remixed sensors, positive for a bed without companions |
 
 ## Population models from biology, ecology and economics
