@@ -20,6 +20,7 @@ Plans and roadmap: [ROADMAP.md](ROADMAP.md). Design review and known limits:
 |---|---|---|
 | Do two systems behave the same? | bisimulation (exact, Markovian), simulation, with a Hennessy–Milner formula as witness when they differ | `bisim-refine` |
 | Is the running system still on plan? | incremental comparison of growing prefixes: "holds so far" until a difference is final | `PrefixChecker`, `streaming`, JSON sessions |
+| Is the running system still bisimilar to the plan, from its events? | a bet against the plan's quotient: evidence valid whenever you look, false alarms at most `1 − level` for every system bisimilar to the plan, and which activity is off by what factor | `PlanEvidence` (`bisim-stochastic`) |
 | Is reality following the plan's numbers? | dated counts against the model's exact ranges, on-track verdict, rate fitting | `check_observations`, `ObserveSession` |
 | How far apart are two models? | optimal-transport bisimulation distance, with the state pairs that drive it | `bisim-metric` |
 | Within tolerance, and what does that guarantee? | (ε, δ)-bisimulation with reachability bounds | `bisim-metric` |
