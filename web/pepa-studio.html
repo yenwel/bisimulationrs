@@ -300,6 +300,26 @@ input[type="text"].stage { width: 9em; }
 .tut table.cmp th { background: var(--sunken); color: var(--ink); font-weight: 600; }
 .tut table.cmp th, .tut table.cmp td { white-space: normal; position: static; }
 
+/* Betting game, clock histograms and clock pairing (steps 14–16). */
+.tut .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.viz .bet { fill: none; stroke: var(--accent); stroke-width: 1.3; opacity: 0.75; }
+.viz .limit { stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.viz .hit { fill: var(--warn); stroke: var(--panel); stroke-width: 1.5; }
+.viz .gridline { stroke: var(--line); stroke-width: 1; }
+.viz text.axislabel { font-size: 11px; fill: var(--muted); }
+.viz .series.dashed { stroke-dasharray: 7 4; }
+.viz .meanline { stroke-width: 1.4; stroke-dasharray: 3 3; }
+.viz .meanline.good { stroke: var(--ok); }
+.viz .meanline.co { stroke: var(--accent); }
+.viz .clock .face { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.5; }
+.viz .clock .half { fill: var(--accent); opacity: 0.55; }
+.viz .clock.done .face { fill: var(--ok-soft); stroke: var(--ok); }
+.viz .clock.done text.mark { fill: var(--ok); font-size: 16px; font-weight: 700; }
+.viz path.pair { fill: none; }
+.viz .pair.broken { stroke: var(--bad); stroke-width: 2; }
+.viz .cross { stroke: var(--bad); stroke-width: 2.5; }
+.viz text.bad { fill: var(--bad); font-weight: 600; }
+
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 
@@ -490,8 +510,9 @@ input[type="text"].stage { width: 9em; }
             <ol>
               <li>Steps 2–7 explain the ideas with pictures: states and arrows, comparing behaviour, induction and coinduction, and finding a difference.</li>
               <li>Steps 8–13 add chance and time, and show what each tab of the Studio does.</li>
-              <li>Steps 14–15 are the precise mathematics, for readers who want it.</li>
-              <li>Step 16 has exercises with answers; step 17 lists the sources.</li>
+              <li>Steps 14–16 are new mathematics from this project, with pictures: betting against a plan, and clocks that remember.</li>
+              <li>Steps 17–18 are the precise mathematics, for readers who want it.</li>
+              <li>Step 19 has exercises with answers; step 20 lists the sources.</li>
             </ol>
             <p>Use <b>Next</b> and <b>Back</b>, or jump with the step list above.</p>
           </section>
@@ -606,7 +627,7 @@ Step: if it holds for n, add n + 1 to both sides:
               <text class="slabel good" x="530" y="108" text-anchor="end">induction: adds until nothing new</text>
               <text class="slabel co" x="530" y="62" text-anchor="end">coinduction: removes until nothing fails</text>
             </svg></div>
-            <p>The Studio’s comparison works exactly like the falling line: it begins by treating all states as equal and splits groups only when one can do something the other cannot (step 14 has the details).</p>
+            <p>The Studio’s comparison works exactly like the falling line: it begins by treating all states as equal and splits groups only when one can do something the other cannot (step 17 has the details).</p>
             <table class="cmp">
               <tr><th></th><th>Induction</th><th>Coinduction</th></tr>
               <tr><td>Good for</td><td>finished things: numbers, lists, a harvest record</td><td>never-ending behaviour: clocks, cycles, continuous harvest</td></tr>
@@ -740,6 +761,84 @@ attribute  plan and fitted model differ in several rates, and so does the outcom
           <p><strong>Available (API) — causality between events (history-preserving bisimulation).</strong> Ordinary bisimulation (§1) treats a run as a sequence of actions. History-preserving bisimulation also tracks <em>which step enabled which</em>. Each component of a PEPA model becomes a token moving through its local states (a safe Petri net), and a step depends on an earlier one when it moves a component that the earlier step moved. Two systems can perform the same actions at the same rates and still differ here. Two workers who water and weed independently give the same Markov chain as one farmer who does both, but for the farmer every task waits on the previous one. Likewise, with one vet each healing depends on the previous healing, which a second vet removes. The answer comes with a witness such as <code>⟨water ← ∅⟩⟨weed ← ∅⟩tt</code>: “a watering that depends on nothing earlier, then a weeding that depends on nothing earlier either” holds for the two workers, not for the farmer. In <code>⟨a ← 1,2⟩</code>, the numbers are the earlier steps the <code>a</code> depends on.</p>
           <p>The method is decidable for finite safe nets (Vogler, ICALP 1991), and DEXPTIME-complete there (Jategaonkar and Meyer, TCS 1996). The finite form of the game used here, which groups past steps by the tokens that depend on them, is this library’s own construction. It is proved in Lean to decide the same thing as the definition, and the code is tested against the definition on random nets. Rates are left out. A model with functional rates (<code>#Name</code>) is refused, because such a rate can switch a step off, which the net cannot express. I found no source that combines causal bisimulation with rates, so a stochastic version would be new work. JSON operation <code>causal</code>; example <code>causal_farm</code>.</p>
 
+          </section>
+
+          <section class="tut-step" data-title="Betting against the plan">
+            <h2>Betting against the plan</h2>
+            <p class="lede">Is the herd still following the plan? Instead of one test on one date, play a betting game against the plan, and keep playing as events come in.</p>
+            <p>You start with <strong>€1</strong>. Each time something happens (an animal heals, falls sick, …) you bet on it. The plan sets the odds: it says how likely each event is and how long you should wait for it. If the plan is right, the odds are fair, and no way of betting makes money on average. So if your money ever grows to <strong>€20</strong>, the plan is probably wrong: call it “off plan”.</p>
+            <div class="row">
+              <button class="btn" data-bets="1">The plan is right</button>
+              <button class="btn" data-bets="1.2">Healing 20 % faster</button>
+              <button class="btn" data-bets="1.5">Healing 50 % faster</button>
+              <button class="btn" data-bets="again">Run again</button>
+            </div>
+            <div class="viz-wrap"><svg class="viz" id="bet-svg" viewBox="0 0 560 270" role="img" aria-label="Money over time in twelve runs of the betting game, on a log scale, with a line at 20 euro"></svg></div>
+            <p id="bet-caption" class="hint" aria-live="polite"></p>
+            <p><strong>How the bet works.</strong> The game only watches how many healings happened (<code>n</code>) and how many the plan expected by now (<code>m</code>). You spread your euro over every guess of how much faster or slower healing really is, a factor <code>θ</code>: the money is the average of <code>θ<sup>n</sup>·e<sup>−(θ−1)·m</sup></code> over the guesses. More healings than expected make the guesses with <code>θ</code> above 1 pay; fewer make those below 1 pay; as many as expected costs a little.</p>
+            <p><strong>Why looking at any time is safe.</strong> If the plan is right, your money is a fair game: on average it stays at €1. A run can still be lucky, but at most 1 run in 20 can ever reach €20: if more did, those runs alone would push the average above €1, and money cannot go below 0. That is <em>Ville’s inequality</em>, and it covers the whole game, not one date. So you may look every day and stop the first time you reach €20; the chance of a false alarm stays at most 5 %. A classical test on a fixed date loses its guarantee if you peek early and stop when it looks bad.</p>
+            <p><strong>The yes/no answer is the extreme case.</strong> If the herd does something the plan calls impossible, the plan gave it zero chance, so a bet on it pays without limit: the money jumps to infinity. That is the “no matching move” of step 3, as a special case of betting.</p>
+            <p><strong>Against whom are you betting?</strong> Every system that behaves the same as the plan (step 3) gives the same chances to what you can see, however it is built inside. So one bet works against all of them at once: you are testing “behaves like the plan”, not one particular model.</p>
+            <div class="block">From the study (4 simulated animals; example bet_against_plan):
+  false alarms within 3000 events     4.3–4.8 %   (guaranteed: at most 5 %)
+  healing 20 % faster, called after   about 1,200 events on average
+  healing 50 % faster, called after   about 210 events
+  differences that average out        not seen (next two steps)
+The herd needs more events than the picture above: healing is one of four
+activities there, and the bet does not know in advance which one is off.</div>
+          </section>
+
+          <section class="tut-step" data-title="Clocks with a memory">
+            <h2>Clocks with a memory</h2>
+            <p class="lede">So far every activity was timed by a clock without memory. Real activities are often not like that, and it can change the answer to “the same?”.</p>
+            <p>A clock <strong>without memory</strong> rings at random, and waiting does not bring the ring any closer: like a light bulb that never wears out. That is what a rate means (step 8). A clock <strong>with a memory</strong> has stages: a fruit first flowers, then ripens, and halfway it is closer to the end. Give both kinds the same average time, and compare two farms that each have two jobs, <em>a</em> and <em>b</em>, to do:</p>
+            <div class="viz-wrap"><svg class="viz" viewBox="0 0 560 190" role="img" aria-label="Two workers do jobs a and b at the same time; one worker does a then b, or b then a">
+              <defs><marker id="arr14" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker></defs>
+              <text class="title" x="20" y="22">Two workers, side by side</text>
+              <g class="box"><rect x="40" y="42" width="190" height="32" rx="6"/><text x="135" y="63">worker 1: job a</text></g>
+              <g class="box"><rect x="40" y="88" width="190" height="32" rx="6"/><text x="135" y="109">worker 2: job b</text></g>
+              <text class="elabel" x="135" y="145">both jobs are worked on</text>
+              <text class="elabel" x="135" y="161">from the start</text>
+              <line class="axis" x1="275" y1="34" x2="275" y2="170"/>
+              <text class="title" x="300" y="22">One worker, either order</text>
+              <g class="box"><rect x="305" y="42" width="90" height="32" rx="6"/><text x="350" y="63">job a</text></g>
+              <path class="edge" d="M397,58 L438,58" marker-end="url(#arr14)"/>
+              <g class="box"><rect x="440" y="42" width="90" height="32" rx="6"/><text x="485" y="63">job b</text></g>
+              <g class="box"><rect x="305" y="88" width="90" height="32" rx="6"/><text x="350" y="109">job b</text></g>
+              <path class="edge" d="M397,104 L438,104" marker-end="url(#arr14)"/>
+              <g class="box"><rect x="440" y="88" width="90" height="32" rx="6"/><text x="485" y="109">job a</text></g>
+              <text class="elabel" x="417" y="145">the second job starts only</text>
+              <text class="elabel" x="417" y="161">when the first is done</text>
+              <text class="elabel" x="280" y="186">In both farms, whichever job’s clock rings first is done first.</text>
+            </svg></div>
+            <p>With clocks without memory the Studio calls these two farms <strong>the same</strong>: same states, same rates. Now look at the wait between the first and the second job finishing:</p>
+            <div class="row">
+              <button class="btn" data-gaps="exp">Clocks without memory</button>
+              <button class="btn" data-gaps="erlang">Clocks with two stages</button>
+            </div>
+            <div class="viz-wrap"><svg class="viz" id="gap-svg" viewBox="0 0 560 250" role="img" aria-label="How often each wait occurs, for two workers and for one worker"></svg></div>
+            <p id="gap-caption" class="hint" aria-live="polite"></p>
+            <p>With two workers, job <em>b</em> was being worked on all along: when <em>a</em> is done, <em>b</em> is already partway. With one worker, the second job starts from scratch. A clock without memory cannot tell “partway” from “fresh”, so the difference disappears. A “same” verdict that leans on clocks without memory can therefore be wrong for a real farm, where growing and ripening take a fairly fixed time.</p>
+          </section>
+
+          <section class="tut-step" data-title="Pairing the clocks">
+            <h2>Pairing the clocks: the same, whatever the clocks</h2>
+            <p class="lede">Which “same” verdicts survive any kind of clock? A sharper kind of claim answers it: pair the clocks.</p>
+            <p>Take the claim of step 3, and between two paired states also pair their <strong>running clocks</strong>:</p>
+            <ol>
+              <li>pair every running clock with one on the other side, for the same activity at the same speed;</li>
+              <li>when a clock rings, its partner rings too;</li>
+              <li>a clock that keeps running keeps its partner; new clocks get new partners.</li>
+            </ol>
+            <div class="row">
+              <button class="btn" data-pair="next">Next moment</button>
+              <button class="btn" data-pair="reset">Start again</button>
+            </div>
+            <div class="viz-wrap"><svg class="viz" id="pair-svg" viewBox="0 0 560 250" role="img" aria-label="The clocks of two workers paired with the clocks of one worker"></svg></div>
+            <p id="pair-caption" class="hint" aria-live="polite"></p>
+            <p>If such a pairing exists, the two systems behave the same <strong>for any clocks</strong> with the same averages, with or without memory: paired clocks stay in step for ever. This is <em>enabling-preserving bisimulation</em> (van Glabbeek, Höfner and Wang, 2021); here it also pairs the speeds.</p>
+            <p><strong>The new result.</strong> The other way round holds too, and the test is cheap: if two systems are the same with clocks of just <em>two stages</em>, then their clocks can be paired, so they are the same for every kind of clock. Why two stages are enough: a clock that has done its first stage is “half full”, and that is visible, because it can now ring sooner. It works like a sticker on one clock: you can follow it through the run and see whether it kept running.</p>
+            <p>This is proved, and checked by the computer in Lean (<code>lean/Bisim/Durations.lean</code>), for systems in which no two running clocks are twins (same activity, same speed). It is still open for twins, such as a herd of identical animals: two half-full twin clocks racing look exactly like one half-full clock running twice as fast, so the sticker no longer tells them apart. A computer search over 24,108 pairs with twins found no counterexample.</p>
           </section>
 
           <section class="tut-step" data-title="For the curious I: the formal story">
@@ -892,11 +991,27 @@ P′ = { states with equal signatures under P }.</div>
             </details>
           </div>
 
+          <div class="ex">
+            <h3>Exercise 10 — Why €20 is safe</h3>
+            <p>In the betting game of step 14 the plan is right, so the money is a fair game that starts at €1 and never goes below €0. Show, using only the average, that at most 1 run in 20 can ever reach €20. What about €100?</p>
+            <details><summary>Answer</summary>
+              <p>Stop every run the first time it reaches €20, and leave the others running. A fair game stopped at a time of your choosing still averages €1. If more than 1 run in 20 had stopped at €20, those runs alone would contribute more than 20 × 1/20 = €1 to the average, and the other runs contribute at least €0: too much. So at most 1 in 20. The same argument with €100 gives at most 1 in 100: the line you draw sets the false-alarm rate.</p>
+            </details>
+          </div>
+
+          <div class="ex">
+            <h3>Exercise 11 — Two workers or one</h3>
+            <p>Each job takes 10 minutes on average. Predict the average wait between the first and the second job finishing, for two workers and for one worker, first with clocks without memory, then with clocks of two stages. Check with the picture in step 15 (it measures in average job times).</p>
+            <details><summary>Answer</summary>
+              <p>Without memory: 10 minutes in both farms. When the first job is done, the other job’s clock is as good as new, whether it was running or not. With two stages: one worker still waits 10 minutes, because the second job starts afresh. Two workers wait only 7.5 minutes on average: the second job was already partway. (For clocks of <code>k</code> stages the difference of two such clocks averages <code>2Γ(k+½)/(√π Γ(k))</code> times a stage’s average; with two stages of 5 minutes each that is 1.5 × 5 = 7.5.)</p>
+            </details>
+          </div>
+
           </section>
 
           <section class="tut-step" data-title="Sources">
             <h2>Sources</h2>
-          <p class="ref">Background: Sangiorgi, <em>Introduction to Bisimulation and Coinduction</em> (2012), also for §0; Larsen, “Modal specifications” (in Sifakis (ed.), <em>Automatic Verification Methods for Finite State Systems</em>, LNCS 407, 1990); Hillston, <em>A Compositional Approach to Performance Modelling</em> (1996); Baier &amp; Katoen, <em>Principles of Model Checking</em> (2008, ch. 7 and 10); Jensen, “Markoff chains as an aid in the study of Markoff processes” (<em>Scandinavian Actuarial Journal</em>, 1953), the source of uniformisation; Spork, Baier, Katoen, Piribauer, Quatmann, “A Spectrum of Approximate Probabilistic Bisimulations” (CONCUR 2024); Spork, Baier, Katoen, Klüppelholz, Piribauer, “Approximate Probabilistic Bisimulation for Continuous-Time Markov Chains” (CAV 2025); Shapley, “A value for n-person games” (1953); Bruni, Montanari, Sammartino, “Revisiting causality, coalgebraically” (Acta Informatica 52, 2015). The Rust sources behind each claim: <code>bisim-refine</code> (§3–6, 10–11, including <code>stream</code>), <code>bisim-api/attribution</code> (§12), <code>bisim-algebra/pepa</code> (§8–9), <code>bisim-stochastic</code> (§7, 9, 11).</p>
+          <p class="ref">Background: Sangiorgi, <em>Introduction to Bisimulation and Coinduction</em> (2012), also for §0; Larsen, “Modal specifications” (in Sifakis (ed.), <em>Automatic Verification Methods for Finite State Systems</em>, LNCS 407, 1990); Hillston, <em>A Compositional Approach to Performance Modelling</em> (1996); Baier &amp; Katoen, <em>Principles of Model Checking</em> (2008, ch. 7 and 10); Jensen, “Markoff chains as an aid in the study of Markoff processes” (<em>Scandinavian Actuarial Journal</em>, 1953), the source of uniformisation; Spork, Baier, Katoen, Piribauer, Quatmann, “A Spectrum of Approximate Probabilistic Bisimulations” (CONCUR 2024); Spork, Baier, Katoen, Klüppelholz, Piribauer, “Approximate Probabilistic Bisimulation for Continuous-Time Markov Chains” (CAV 2025); Shapley, “A value for n-person games” (1953); Bruni, Montanari, Sammartino, “Revisiting causality, coalgebraically” (Acta Informatica 52, 2015); for steps 14–16: Ramdas, Grünwald, Vovk, Shafer, “Game-Theoretic Statistics and Safe Anytime-Valid Inference” (Statistical Science 38(4), 2023), on betting and Ville’s inequality; van Glabbeek, Höfner, Wang, “Enabling Preserving Bisimulation Equivalence” (CONCUR 2021); REVIEW.md in this repository (Ideas 1 and 3) and <code>lean/Bisim/Durations.lean</code>. The Rust sources behind each claim: <code>bisim-refine</code> (§3–6, 10–11, including <code>stream</code>), <code>bisim-api/attribution</code> (§12), <code>bisim-algebra/pepa</code> (§8–9), <code>bisim-stochastic</code> (§7, 9, 11).</p>
           </section>
 
           <nav class="tut-nav bottom" aria-label="Tutorial steps, bottom">
@@ -1193,6 +1308,9 @@ function showTutStep(i) {
   document.getElementById("tut-article").scrollTop = 0;
   store.set("tutStep", String(tutStep));
   if (tutSteps[tutStep].querySelector("#tree-svg")) drawTree(null);
+  if (tutSteps[tutStep].querySelector("#bet-svg")) drawBets();
+  if (tutSteps[tutStep].querySelector("#gap-svg")) drawGaps();
+  if (tutSteps[tutStep].querySelector("#pair-svg")) drawPair();
 }
 tutJump.addEventListener("change", () => showTutStep(+tutJump.value));
 document.getElementById("tut-article").addEventListener("click", (e) => {
@@ -1200,6 +1318,17 @@ document.getElementById("tut-article").addEventListener("click", (e) => {
   if (go) { showTutStep(tutStep + +go.dataset.tutGo); return; }
   const tree = e.target.closest("[data-tree]");
   if (tree) { walkTree(tree.dataset.tree); return; }
+  const bet = e.target.closest("[data-bets]");
+  if (bet) {
+    if (bet.dataset.bets === "again") betSeed++;
+    else betFactor = +bet.dataset.bets;
+    drawBets();
+    return;
+  }
+  const gaps = e.target.closest("[data-gaps]");
+  if (gaps) { gapClock = gaps.dataset.gaps; drawGaps(); return; }
+  const pair = e.target.closest("[data-pair]");
+  if (pair) { pairStep = pair.dataset.pair === "reset" ? 0 : Math.min(PAIR_CAPTIONS.length - 1, pairStep + 1); drawPair(); return; }
   // Buttons that load a built-in example (and preset for B) and open a tab.
   const ex = e.target.closest("button[data-example]");
   if (ex) {
@@ -1309,6 +1438,164 @@ function walkTree(kind) {
     say(k);
     if (++k >= events.length) { clearInterval(treeTimer); setTimeout(() => say(events.length), 700); }
   }, kind === "dfs" ? 450 : 500);
+}
+
+// ---------- Steps 14–16: betting against the plan, clocks that remember,
+// pairing the clocks ----------
+// Seeded randomness (mulberry32): a picture stays put until "Run again".
+function seeded(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// ln Γ(x) (Lanczos, g = 7), as in bisim-stochastic.
+function lnGamma(x) {
+  const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - lnGamma(1 - x);
+  x -= 1;
+  let a = c[0];
+  for (let i = 1; i < 9; i++) a += c[i] / (x + i);
+  const t = x + 7.5;
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+
+// The betting game: one activity the plan expects once per time unit,
+// really happening at betFactor times that rate. After n events, when the
+// plan expected m, the money is the average over speed factors θ (an
+// exponential prior) of θⁿ e^{−(θ−1)m}, that is Γ(n+1) eᵐ / (1+m)ⁿ⁺¹: the
+// same bet as PlanEvidence in bisim-stochastic.
+let betFactor = 1, betSeed = 1;
+const BET_RUNS = 12, BET_SPAN = 400;
+function drawBets() {
+  const svg = document.getElementById("bet-svg");
+  if (!svg) return;
+  const W = 560, H = 270, ml = 58, mr = 16, mt = 12, mb = 36;
+  const lo = Math.log(1 / 40), hi = Math.log(400), limit = Math.log(20);
+  const x = (v) => ml + (v / BET_SPAN) * (W - ml - mr);
+  const y = (v) => mt + (1 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * (H - mt - mb);
+  const money = (n, m) => lnGamma(n + 1) - (n + 1) * Math.log(1 + m) + m;
+  let out = "";
+  for (const [label, v] of [["€1/20", Math.log(1 / 20)], ["€1", 0], ["€20", limit], ["€400", Math.log(400)]]) {
+    out += `<line class="gridline" x1="${ml}" y1="${y(v)}" x2="${W - mr}" y2="${y(v)}"/><text class="axislabel" x="${ml - 6}" y="${y(v) + 4}" text-anchor="end">${label}</text>`;
+  }
+  for (let t = 0; t <= BET_SPAN; t += 100) out += `<text class="axislabel" x="${x(t)}" y="${H - mb + 16}">${t}</text>`;
+  out += `<text class="axislabel" x="${(ml + W - mr) / 2}" y="${H - 4}">events the plan expected so far</text>`;
+  out += `<line class="limit" x1="${ml}" y1="${y(limit)}" x2="${W - mr}" y2="${y(limit)}"/>`;
+  out += `<text class="axislabel" x="${W - mr}" y="${y(limit) - 6}" text-anchor="end">reach €20: call it off plan</text>`;
+  let crossed = 0, sumWhen = 0, dots = "";
+  for (let r = 0; r < BET_RUNS; r++) {
+    const rand = seeded(betSeed * 7919 + r * 104729);
+    const gap = () => -Math.log(1 - rand()) / betFactor;
+    let n = 0, next = gap(), hit = null;
+    const pts = [[0, 0]];
+    // A run that leaves the top of the picture stops there.
+    const note = (t, v) => { if (pts.length && pts[pts.length - 1][1] > hi) return; pts.push([t, v]); if (!hit && v >= limit) hit = [t, v]; };
+    for (let t = 1; t <= BET_SPAN; t++) {
+      // An event: the money just before it, then just after it.
+      while (next <= t) { note(next, money(n, next)); n++; note(next, money(n, next)); next += gap(); }
+      note(t, money(n, t));
+    }
+    out += `<polyline class="bet" points="${pts.map(([t, v]) => `${x(t).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}"/>`;
+    if (hit) { crossed++; sumWhen += hit[0]; dots += `<circle class="hit" cx="${x(hit[0]).toFixed(1)}" cy="${y(hit[1]).toFixed(1)}" r="4.5"/>`; }
+  }
+  svg.innerHTML = out + dots;
+  const caption = document.getElementById("bet-caption");
+  if (betFactor === 1) {
+    caption.textContent = `The plan is right. ${crossed} of ${BET_RUNS} runs reached €20: false alarms. Over many runs at most 1 in 20 does, and most runs drift slowly down, because betting on a difference that is not there costs a little each time.`;
+  } else {
+    const pct = Math.round((betFactor - 1) * 100);
+    caption.textContent = `Healing is ${pct} % faster than planned. ${crossed} of ${BET_RUNS} runs reached €20${crossed ? `, on average after ${Math.round(sumWhen / crossed)} events the plan expected` : ""}. The bigger the difference, the sooner the money grows. The dots mark the moment a run calls it off plan.`;
+  }
+  document.querySelectorAll("[data-bets]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.bets !== "again" && +b.dataset.bets === betFactor)));
+}
+
+// Two workers (a ∥ b) against one worker doing a and b in either order:
+// the wait between the first and the second job finishing, with clocks
+// without memory (exponential) or with two stages (Erlang-2), both with an
+// average of 1. Two workers: the other clock kept running, so the wait is
+// the difference of the two clocks. One worker: the second job starts afresh.
+let gapClock = "exp";
+function drawGaps() {
+  const svg = document.getElementById("gap-svg");
+  if (!svg) return;
+  const rand = seeded(2026);
+  const exp = (rate) => -Math.log(1 - rand()) / rate;
+  const clock = () => (gapClock === "exp" ? exp(1) : exp(2) + exp(2));
+  const N = 40000, width = 0.2, span = 4, bins = span / width;
+  const two = new Array(bins).fill(0), one = new Array(bins).fill(0);
+  let sumTwo = 0, sumOne = 0;
+  for (let i = 0; i < N; i++) {
+    const g2 = Math.abs(clock() - clock());
+    const g1 = clock();
+    sumTwo += g2;
+    sumOne += g1;
+    if (g2 < span) two[Math.floor(g2 / width)]++;
+    if (g1 < span) one[Math.floor(g1 / width)]++;
+  }
+  const W = 560, H = 250, ml = 24, mr = 16, mt = 40, mb = 36, top = 1.1;
+  const x = (v) => ml + (v / span) * (W - ml - mr);
+  const y = (d) => mt + (1 - Math.min(d, top) / top) * (H - mt - mb);
+  const steps = (counts) => {
+    let pts = `${x(0)},${y(0)}`;
+    counts.forEach((c, i) => { const d = c / (N * width); pts += ` ${x(i * width).toFixed(1)},${y(d).toFixed(1)} ${x((i + 1) * width).toFixed(1)},${y(d).toFixed(1)}`; });
+    return pts + ` ${x(span)},${y(0)}`;
+  };
+  const mTwo = sumTwo / N, mOne = sumOne / N;
+  let out = `<line class="axis" x1="${ml}" y1="${y(0)}" x2="${W - mr}" y2="${y(0)}"/>`;
+  for (let t = 0; t <= span; t++) out += `<text class="axislabel" x="${x(t)}" y="${H - mb + 16}">${t}</text>`;
+  out += `<text class="axislabel" x="${(ml + W - mr) / 2}" y="${H - 4}">wait between the first and the second job finishing (in average job times)</text>`;
+  out += `<polyline class="series co" points="${steps(two)}"/><polyline class="series good dashed" points="${steps(one)}"/>`;
+  out += `<line class="meanline co" x1="${x(mTwo)}" y1="${mt}" x2="${x(mTwo)}" y2="${y(0)}"/><line class="meanline good" x1="${x(mOne)}" y1="${mt}" x2="${x(mOne)}" y2="${y(0)}"/>`;
+  out += `<text class="slabel co" x="${W - mr}" y="14" text-anchor="end">two workers: average ${mTwo.toFixed(2)}</text>`;
+  out += `<text class="slabel good" x="${W - mr}" y="30" text-anchor="end">one worker (dashed): average ${mOne.toFixed(2)}</text>`;
+  svg.innerHTML = out;
+  document.getElementById("gap-caption").textContent = gapClock === "exp"
+    ? `Clocks without memory: the two curves lie on top of each other (averages ${mTwo.toFixed(2)} and ${mOne.toFixed(2)}). When the first job is done, the other job’s clock is as good as new, so it makes no difference that it was running.`
+    : `Clocks with two stages: with two workers the second job was already partway, so the wait is shorter (average ${mTwo.toFixed(2)} against ${mOne.toFixed(2)}). The two farms are no longer the same.`;
+  document.querySelectorAll("[data-gaps]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.gaps === gapClock)));
+}
+
+// Pairing the clocks of two workers with those of one worker, one moment
+// at a time.
+let pairStep = 0;
+const PAIR_CAPTIONS = [
+  "Both farms start with two running clocks, for jobs a and b, at the same speeds. Pair them: a with a, b with b (rule 1).",
+  "Time passes. Every clock has done its first stage: it is half full, so it will ring sooner. Paired clocks are still in step.",
+  "Clock a rings on both sides, as rule 2 says. Left: worker 2 kept going, so clock b is still half full. Right: b was the other half of the choice, so its clock is thrown away and job b starts again with an empty clock. Rule 3 says a clock that keeps running keeps its partner, and here it has none: the pairing fails. With clocks that remember, these farms are not the same. With clocks without memory nobody could tell, because a half-full clock without memory is as good as an empty one.",
+];
+function clockSvg(cx, cy, label, state) {
+  const r = 22;
+  const half = state === "half" ? `<path class="half" d="M${cx},${cy} L${cx},${cy - r} A${r},${r} 0 0 1 ${cx},${cy + r} Z"/>` : "";
+  const mark = state === "done" ? `<text class="mark" x="${cx}" y="${cy + 6}">✓</text>` : "";
+  return `<g class="clock ${state}"><circle class="face" cx="${cx}" cy="${cy}" r="${r}"/>${half}${mark}<text x="${cx}" y="${cy + r + 17}">${label}</text></g>`;
+}
+function drawPair() {
+  const svg = document.getElementById("pair-svg");
+  if (!svg) return;
+  const k = pairStep;
+  const L = { a: [100, 110], b: [200, 110] }, R = { a: [370, 110], b: [470, 110] };
+  const state = (side, job) => (k === 0 ? "empty" : k === 1 ? "half" : job === "a" ? "done" : side === "L" ? "half" : "empty");
+  let out = `<text class="title" x="40" y="22">Two workers</text><text class="title" x="320" y="22">One worker, either order</text>`;
+  out += `<line class="axis" x1="280" y1="34" x2="280" y2="190"/>`;
+  out += `<path class="pair" d="M${L.a[0]},${L.a[1] - 24} C${L.a[0]},44 ${R.a[0]},44 ${R.a[0]},${R.a[1] - 24}"/>`;
+  out += `<path class="pair${k === 2 ? " broken" : ""}" d="M${L.b[0]},${L.b[1] + 46} C${L.b[0]},212 ${R.b[0]},212 ${R.b[0]},${R.b[1] + 46}"/>`;
+  if (k === 2) {
+    const mx = (L.b[0] + R.b[0]) / 2, my = 199;
+    out += `<line class="cross" x1="${mx - 8}" y1="${my - 8}" x2="${mx + 8}" y2="${my + 8}"/><line class="cross" x1="${mx - 8}" y1="${my + 8}" x2="${mx + 8}" y2="${my - 8}"/>`;
+    out += `<text class="bad" x="${mx}" y="${my + 30}">b kept running on the left, but started again on the right</text>`;
+  }
+  out += clockSvg(L.a[0], L.a[1], "a", state("L", "a")) + clockSvg(L.b[0], L.b[1], "b", state("L", "b"));
+  out += clockSvg(R.a[0], R.a[1], "a", state("R", "a")) + clockSvg(R.b[0], R.b[1], k === 2 ? "b (new clock)" : "b", state("R", "b"));
+  svg.innerHTML = out;
+  document.getElementById("pair-caption").textContent = PAIR_CAPTIONS[k];
+  const next = document.querySelector('[data-pair="next"]');
+  if (next) next.disabled = k === PAIR_CAPTIONS.length - 1;
 }
 
 // ---------- Engine (Rust → WebAssembly, JSON in/out) ----------
