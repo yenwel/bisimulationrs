@@ -19,9 +19,15 @@
 //! [`reach`] answers CSL/PCTL-style reachability queries:
 //! unbounded and step-bounded reachability on DTMCs by value iteration,
 //! time-bounded reachability on CTMCs by uniformisation.
+//!
+//! [`PlanEvidence`] bets against a plan as observed events arrive: evidence
+//! that is valid whenever you look, for every system Markovian bisimilar to
+//! the plan at once; [`divergences`] says how fast it grows against a given
+//! alternative, and what it cannot see.
 
 mod count;
 mod ctmc;
+mod evidence;
 pub mod fluid;
 mod optimize;
 pub mod reach;
@@ -29,6 +35,10 @@ mod simulate;
 
 pub use count::CountDistribution;
 pub use ctmc::Ctmc;
+pub use evidence::{
+    Divergences, EvidenceError, EvidenceOptions, ImpossibleMove, LabelEvidence, ObservedRate,
+    PlanEvidence, PlanVerdict, Pooling, TransitionEvidence, divergences, log_mixture_evidence,
+};
 pub use fluid::{integrate, integrate_fixed};
 pub use optimize::nelder_mead;
 pub use reach::{MatrixError, bounded_steps, dtmc_matrix, unbounded_reach};

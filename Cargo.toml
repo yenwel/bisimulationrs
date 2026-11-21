@@ -48,3 +48,8 @@ all = { level = "warn", priority = -1 }
 # slower unoptimised, which made its tests take minutes in debug builds.
 [profile.dev.package.bisim-metric]
 opt-level = 3
+
+# The same for the simulation loops (Gillespie runs feeding PlanEvidence) in
+# the bisim-stochastic tests.
+[profile.dev.package.bisim-stochastic]
+opt-level = 3
