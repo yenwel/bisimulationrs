@@ -32,6 +32,7 @@ mod causal;
 #[cfg(feature = "learned-challenger")]
 pub mod challenger;
 mod compare;
+pub mod durations;
 mod fast;
 mod game;
 mod live;
