@@ -220,11 +220,12 @@ theorem tau_match (hE : IsBisim E (X2 C)) {p q : M × Finset T} (h : E p q) {t :
   have hpos : 0 < ∑ x ∈ C.en p.1, if x ∉ p.2 then C.rate x * F (p.1, insert x p.2) else 0 := by
     apply Finset.sum_pos'
     · intro x _
-      split_ifs
-      · apply mul_nonneg (C.rate_pos x).le
+      by_cases hx : x ∉ p.2
+      · rw [if_pos hx]
+        apply mul_nonneg (C.rate_pos x).le
         simp only [F]
         split_ifs <;> simp
-      · exact le_rfl
+      · simp [hx]
     · refine ⟨t, hten, ?_⟩
       have hFt : F (p.1, insert t p.2) = 1 := by simp only [F, hE.equiv.refl, ↓reduceIte]
       rw [if_pos htS, hFt, mul_one]
